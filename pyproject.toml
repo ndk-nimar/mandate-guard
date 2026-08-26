@@ -1,0 +1,58 @@
+[project]
+name = "mandateguard"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Gurkanwaldeep", email = "gurkanwaldeeppurba@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "pulp>=3.3.2",
+    "pydantic>=2.13.4",
+    "pydantic-settings>=2.15.0",
+    "python-dotenv>=1.2.3",
+    "pyyaml>=6.0.3",
+    "scipy>=1.18.1",
+    "streamlit>=1.62.0",
+    "typer>=0.27.1",
+    "uvicorn>=0.52.4",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.26,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.12.0",
+    "kaggle>=2.2.4",
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.4",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    "error",
+    # PuLP 3.x warns about its own 4.0 API changes. We pin 3.x in uv.lock and use
+    # PULP_CBC_CMD deliberately -- see docs/adr/0002-solver-and-shadow-price.md.
+    "default::DeprecationWarning:pulp.*",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+files = ["src/mandateguard/value", "src/mandateguard/allocator"]
+python_version = "3.12"
+ignore_missing_imports = true

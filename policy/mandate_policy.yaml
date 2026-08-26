@@ -1,0 +1,15 @@
+# Compiled regulatory policy. Every rule carries a clause citation into its source.
+#
+# This file is written by the LLM policy compiler (T4.1) from the actual RBI circular
+# text and reviewed by a human as a diff. Rules without a `clause` are rejected by the
+# loader -- that rejection is what keeps the compiler honest.
+#
+# v0: skeleton only. Real rules land in T4.1, after the circular has been read.
+
+version: 0
+source:
+  name: RBI Digital Payments E-Mandate Framework, 2026
+  notified_on: 2026-04-21
+  read: false          # flip to true only once the circular text has actually been read
+
+rules: []

@@ -1,0 +1,41 @@
+# Calibration parameters. Nothing in this file is hard-coded in Python.
+#
+# Every number here must have a source line in docs/calibration.md, or be explicitly
+# marked `swept: true` -- meaning we do not know it, no public measurement exists, and
+# eval/sweep.py varies it rather than asserting a value. See docs/problem.md 10.
+
+channels:
+  # cost_inr and efficacy_prior per contact. `intrusive: false` channels do not consume
+  # the ask budget (docs/problem.md 5.3) but still incur fatigue.
+  - {name: in_app,   cost_inr: 0.00,  efficacy_prior: 0.02, intrusive: false}
+  - {name: email,    cost_inr: 0.05,  efficacy_prior: 0.03, intrusive: true}
+  - {name: sms,      cost_inr: 0.15,  efficacy_prior: 0.05, intrusive: true}
+  - {name: whatsapp, cost_inr: 0.35,  efficacy_prior: 0.09, intrusive: true}
+  - {name: ivr,      cost_inr: 2.00,  efficacy_prior: 0.12, intrusive: true}
+  - {name: letter,   cost_inr: 25.00, efficacy_prior: 0.15, intrusive: true}
+  - {name: agent,    cost_inr: 40.00, efficacy_prior: 0.28, intrusive: true}
+
+value:
+  # LinkedIn KDD 2016 -- separate prices, never one netted number.
+  mu_good_outcome: 1.0
+  nu_complaint: 1.0
+  # Twitter/X 2022 -- weight on reachability; also a sweep axis.
+  alpha_reachability: 1.0
+  # Duolingo KDD 2020 -- fatigue magnitude and half-life in days.
+  gamma_fatigue: 25.0
+  fatigue_half_life_days: 15
+  # Duolingo KDD 2020 -- penalty for reusing the previous template.
+  rho_template_reuse: 5.0
+
+recovery:
+  # q and r from docs/problem.md 6.2. q > r is enforced in models.Mandate.
+  # q is estimable from KKBox (T1.2: how many cancels are followed by another
+  # transaction). r has no known public source and is therefore swept.
+  after_lapse: 0.35          # q -- provisional, to be fit in T1.2
+  after_revocation: 0.08     # r -- swept: true, no public measurement exists
+
+horizon:
+  weeks: 12
+  budget_inr_per_week: 500.0
+
+seed: 20260905

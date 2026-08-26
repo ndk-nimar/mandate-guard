@@ -1,0 +1,39 @@
+# Data — only data/sample/ is committed (it is what CI reproduces results from)
+data/raw/
+data/interim/
+data/processed/
+!data/sample/
+!data/sample/**
+
+# Secrets
+.env
+.env.*
+!.env.example
+kaggle.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+htmlcov/
+.coverage
+
+# Models / binaries
+*.pkl
+*.joblib
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Personal working notes — Hinglish, deliberately not part of the submission
+docs/tasks-samjhao.md
