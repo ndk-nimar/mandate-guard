@@ -35,5 +35,8 @@ htmlcov/
 Thumbs.db
 .DS_Store
 
-# Personal working notes — Hinglish, deliberately not part of the submission
+# Personal working notes — Hinglish, deliberately not part of the submission.
+# These are the learning/journal layer, not deliverables.
 docs/tasks-samjhao.md
+docs/worklog.md
+docs/seekha.md
