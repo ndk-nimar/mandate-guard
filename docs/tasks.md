@@ -54,7 +54,7 @@ could break the plan later.
   **Done when:** `tests/spikes/test_lp_dual.py` passes, or the scipy HiGHS fallback
   (`res.ineqlin.marginals`) is adopted and `docs/stack.md` amended.
 
-- [ ] **T0.4 — SPIKE S2: Kaggle access.** `uv add kaggle`, create an API token, accept the
+- [x] **T0.4 — SPIKE S2: Kaggle access.** `uv add kaggle`, create an API token, accept the
   WSDM 2018 competition rules, start the `transactions.csv` download in the background.
   **Done when:** the download is running or complete. If Kaggle blocks the account, fall
   back to Telco Customer Churn — it has no `is_auto_renew`, which weakens the Tier-1 claim,
@@ -103,7 +103,7 @@ Goal: a lapse-hazard model fit on real subscriber data that beats a naive baseli
 > hazard is fit on real data, not invented" — dies here if it fails. Nothing downstream is
 > worth building until it passes.
 
-- [ ] **T1.1 — Ingest KKBox with DuckDB.** `transactions.csv` (~21M rows) is too large for
+- [x] **T1.1 — Ingest KKBox with DuckDB.** `transactions.csv` (~21M rows) is too large for
   a comfortable `pandas.read_csv` on a laptop. Run DuckDB SQL directly over the CSV, select
   only the needed columns, write `data/interim/transactions.parquet`. Same for
   `members.csv` and the train labels.
