@@ -10,6 +10,7 @@ data/processed/
 .env.*
 !.env.example
 kaggle.json
+access_token
 
 # Python
 __pycache__/
@@ -40,3 +41,6 @@ Thumbs.db
 docs/tasks-samjhao.md
 docs/worklog.md
 docs/seekha.md
+
+# Claude Code local working directory (worktrees, session state)
+.claude/

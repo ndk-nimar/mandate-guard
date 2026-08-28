@@ -68,28 +68,65 @@ def test_policy_rules_must_cite_a_clause():
         Policy.model_validate(raw)
 
 
+RECOVERY = {
+    "after_lapse": 0.41,
+    "after_revocation": 0.08,
+    "swept_ceiling_after_revocation": 0.29,
+}
+
+
+def params_payload(**overrides):
+    """A minimal valid Params body, so each test can break exactly one thing."""
+    payload = {
+        "channels": [
+            {"name": "free", "cost_inr": 0.0, "efficacy_prior": 0.02, "intrusive": False},
+            {"name": "sms", "cost_inr": 0.15, "efficacy_prior": 0.05, "intrusive": True},
+        ],
+        "value": {
+            "mu_good_outcome": 1.0,
+            "nu_complaint": 1.0,
+            "alpha_reachability": 1.0,
+            "gamma_fatigue": 1.0,
+            "fatigue_half_life_days": 15,
+            "rho_template_reuse": 1.0,
+        },
+        "recovery": dict(RECOVERY),
+        "horizon": {"weeks": 12, "budget_inr_per_week": 500.0},
+        "seed": 1,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_the_minimal_payload_is_actually_valid():
+    """Without this, every `pytest.raises` below could be passing because the payload
+    was malformed in some unrelated way rather than because of the thing under test."""
+    assert Params.model_validate(params_payload()).seed == 1
+
+
 def test_negative_channel_cost_is_rejected():
+    bad = [{"name": "bad", "cost_inr": -1.0, "efficacy_prior": 0.1, "intrusive": True}]
     with pytest.raises(ValidationError):
-        Params.model_validate(
-            {
-                "channels": [
-                    {
-                        "name": "bad",
-                        "cost_inr": -1.0,
-                        "efficacy_prior": 0.1,
-                        "intrusive": True,
-                    }
-                ],
-                "value": {
-                    "mu_good_outcome": 1.0,
-                    "nu_complaint": 1.0,
-                    "alpha_reachability": 1.0,
-                    "gamma_fatigue": 1.0,
-                    "fatigue_half_life_days": 15,
-                    "rho_template_reuse": 1.0,
-                },
-                "recovery": {"after_lapse": 0.3, "after_revocation": 0.1},
-                "horizon": {"weeks": 12, "budget_inr_per_week": 500.0},
-                "seed": 1,
-            }
-        )
+        Params.model_validate(params_payload(channels=bad))
+
+
+def test_recovery_ordering_is_rejected_at_load_not_just_per_mandate():
+    """q <= r is incoherent: a mandate the customer deliberately killed cannot be
+    easier to win back than one that merely expired (T1.2 measured 0.41 vs a 0.29
+    ceiling). Catching it in the YAML means it never reaches a Mandate at all."""
+    with pytest.raises(ValidationError, match="must exceed"):
+        Params.model_validate(params_payload(recovery=RECOVERY | {"after_lapse": 0.05}))
+
+
+def test_r_cannot_be_swept_above_its_measured_ceiling():
+    """0.35 is above the 0.29 ceiling but still below q, so only the ceiling check can
+    reject it. That ceiling is the only thing keeping the r sweep attached to evidence:
+    without it, `after_revocation: 0.35` would load silently and every saving the
+    optimiser reports would rest on a number nobody measured."""
+    with pytest.raises(ValidationError, match="ceiling"):
+        Params.model_validate(params_payload(recovery=RECOVERY | {"after_revocation": 0.35}))
+
+
+def test_shipped_r_sits_inside_its_ceiling():
+    r = load_params().recovery
+    assert 0 < r.after_revocation <= r.swept_ceiling_after_revocation < r.after_lapse

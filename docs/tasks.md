@@ -109,7 +109,7 @@ Goal: a lapse-hazard model fit on real subscriber data that beats a naive baseli
   `members.csv` and the train labels.
   **Done when:** row counts and date ranges are printed and recorded in `docs/mapping.md`.
 
-- [ ] **T1.2 — Nail down `is_cancel` semantics.** Cancel is not churn. Verify empirically:
+- [x] **T1.2 — Nail down `is_cancel` semantics.** Cancel is not churn. Verify empirically:
   how many `is_cancel=1` rows are followed by another transaction?
   **Done when:** the answer is a number written into `docs/mapping.md`.
 

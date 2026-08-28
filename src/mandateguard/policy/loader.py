@@ -1,9 +1,10 @@
 """Config and policy loading, with the invariants that matter enforced at load time.
 
-Two rules are enforced here rather than trusted:
+Three rules are enforced here rather than trusted:
   * every policy rule cites a clause (an uncited rule is a hallucinated rule)
   * the policy file's hash is recoverable, so every ledger entry can pin the exact
     policy version a decision was made under, and `replay` can reproduce it (T5.2)
+  * the recovery parameters stay ordered and inside their measured ceiling (T1.2)
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from mandateguard.models import Channel, PolicyRule
 
@@ -32,8 +33,37 @@ class ValueParams(BaseModel):
 
 
 class RecoveryParams(BaseModel):
+    """q and r, plus the empirical ceiling the r sweep is not allowed to leave.
+
+    The invariants are enforced here rather than only in `models.Mandate`, because the
+    YAML is edited by hand far more often than a `Mandate` is constructed: an
+    inconsistent config should fail on load, not three layers downstream.
+    """
+
     after_lapse: float = Field(ge=0, le=1)
     after_revocation: float = Field(ge=0, le=1)
+    swept_ceiling_after_revocation: float = Field(ge=0, le=1)
+    """Upper bound on r measured in T1.2 (docs/mapping.md 2). The sweep runs over
+    (0, ceiling]; nothing above it has any evidence behind it."""
+
+    @model_validator(mode="after")
+    def check_ordering(self) -> RecoveryParams:
+        if self.after_lapse <= self.after_revocation:
+            raise ValueError(
+                f"recovery.after_lapse (q={self.after_lapse}) must exceed "
+                f"recovery.after_revocation (r={self.after_revocation}): a mandate the "
+                "customer deliberately killed cannot be easier to win back than one "
+                "that merely expired. See docs/problem.md 6.2."
+            )
+        if self.after_revocation > self.swept_ceiling_after_revocation:
+            raise ValueError(
+                f"recovery.after_revocation (r={self.after_revocation}) exceeds its "
+                f"measured ceiling ({self.swept_ceiling_after_revocation}). The ceiling "
+                "comes from T1.2; raising r above it means claiming revoked mandates "
+                "recover more often than cancelled KKBox subscriptions did, with no "
+                "evidence for it."
+            )
+        return self
 
 
 class HorizonParams(BaseModel):

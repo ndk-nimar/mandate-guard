@@ -28,11 +28,27 @@ value:
   rho_template_reuse: 5.0
 
 recovery:
-  # q and r from docs/problem.md 6.2. q > r is enforced in models.Mandate.
-  # q is estimable from KKBox (T1.2: how many cancels are followed by another
-  # transaction). r has no known public source and is therefore swept.
-  after_lapse: 0.35          # q -- provisional, to be fit in T1.2
-  after_revocation: 0.08     # r -- swept: true, no public measurement exists
+  # q and r from docs/problem.md 6.2. q > r is enforced twice: in models.Mandate when a
+  # mandate is built, and in policy/loader.RecoveryParams when this file is loaded.
+  #
+  # Measured in T1.2 -- see docs/mapping.md 2 for the definitions, the sensitivity
+  # table, and the caveats. Both numbers are recovery within 84 days, which is
+  # horizon.weeks below; a recovery the harness never lives to see must not be
+  # counted in a parameter the harness consumes.
+  after_lapse: 0.41          # q -- measured: 638,931 / 1,568,023 passive lapses = 0.407
+  after_revocation: 0.08     # r -- swept: true, ceiling 0.29 measured (see below)
+  #
+  # q replaces a provisional 0.35 and is *worse* for this project, not better: lapsed
+  # mandates self-heal more often than assumed, so the value of intervening on them is
+  # correspondingly smaller.
+  #
+  # r stays swept. KKBox's nearest analogue -- recovery after an in-app cancellation,
+  # where coverage actually ended -- is 0.29, but re-subscribing to a music app is one
+  # tap, whereas a revoked UPI AutoPay mandate needs a fresh mandate and a fresh bank
+  # authentication. 0.29 is therefore a ceiling on r, not a measurement of it. The
+  # sweep runs over (0, 0.29], which is a data-backed interval rather than the open
+  # (0, 1) it was before T1.2.
+  swept_ceiling_after_revocation: 0.29
 
 horizon:
   weeks: 12
