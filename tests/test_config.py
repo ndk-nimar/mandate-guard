@@ -74,6 +74,17 @@ RECOVERY = {
     "swept_ceiling_after_revocation": 0.29,
 }
 
+INDIA = {
+    "snapshot_date": "2017-02-28",
+    "ntd_to_inr": 1.0,
+    "rail_mix": {"upi_autopay": 0.55, "card": 0.25, "enach": 0.15, "ppi": 0.05},
+    "upi_autopay_afa_threshold_inr": 15000.0,
+    "mandate_validity_days": 730,
+    "reachability_fraction_of_ltv": 0.15,
+    "plausible_age_years": [13, 90],
+    "default_debit_frequency_days": 30,
+}
+
 
 def params_payload(**overrides):
     """A minimal valid Params body, so each test can break exactly one thing."""
@@ -92,6 +103,7 @@ def params_payload(**overrides):
         },
         "recovery": dict(RECOVERY),
         "horizon": {"weeks": 12, "budget_inr_per_week": 500.0},
+        "india": dict(INDIA),
         "seed": 1,
     }
     payload.update(overrides)
@@ -130,3 +142,29 @@ def test_r_cannot_be_swept_above_its_measured_ceiling():
 def test_shipped_r_sits_inside_its_ceiling():
     r = load_params().recovery
     assert 0 < r.after_revocation <= r.swept_ceiling_after_revocation < r.after_lapse
+
+
+def test_a_rail_mix_that_does_not_sum_to_one_is_rejected():
+    """The rail mix is a synthetic overlay (T1.3): KKBox never published what
+    `payment_method_id` means, so the mix is assigned rather than measured. A mix
+    summing to 0.9 would silently leave a tenth of the book on the last rail in the
+    ladder, and nothing downstream would notice."""
+    with pytest.raises(ValidationError, match="must sum to 1"):
+        Params.model_validate(
+            params_payload(india=INDIA | {"rail_mix": {"card": 0.5, "upi_autopay": 0.4}})
+        )
+
+
+def test_an_inverted_age_range_is_rejected():
+    """`plausible_age_years` decides which ages become NULL. Inverted, it would null
+    every age in the book and the field would look uniformly missing rather than wrong."""
+    with pytest.raises(ValidationError, match="plausible_age_years"):
+        Params.model_validate(params_payload(india=INDIA | {"plausible_age_years": [90, 13]}))
+
+
+def test_the_shipped_snapshot_does_not_run_past_the_transaction_data():
+    """`transactions` ends 2017-02-28 (docs/mapping.md 1). A snapshot after that would
+    quietly build the book from a partial month and call it a full one."""
+    from datetime import date
+
+    assert load_params().india.snapshot_date <= date(2017, 2, 28)

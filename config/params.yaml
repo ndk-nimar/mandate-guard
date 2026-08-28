@@ -54,4 +54,58 @@ horizon:
   weeks: 12
   budget_inr_per_week: 500.0
 
+# T1.3 -- the India mapping layer. KKBox is a Taiwanese music service in 2017; this
+# system is about Indian recurring mandates in 2026. Every constant below is part of
+# that bridge, and every one is a DECISION, not a measurement. Full argument and the
+# alternatives rejected: docs/mapping.md 3.
+india:
+  # Snapshot the mandate book is built "as of". This is the horizon of
+  # transactions.parquet; transactions_v2 (March 2017) is deliberately NOT merged and
+  # is held back as out-of-time validation data. See docs/mapping.md 3.2.
+  snapshot_date: 2017-02-28
+
+  # NTD -> INR. Deliberately 1.0, which is NOT the FX rate (~2.7 INR/TWD in 2026).
+  # KKBox's price ladder is 149/129/119/99 NTD; India's music-subscription ladder is
+  # 149/129/119/99 INR (Spotify 119, YouTube Premium 129, JioSaavn/Gaana 99). Taking
+  # the numeral as rupees lands on real Indian prices; taking the FX rate produces
+  # ~400/month plans that no Indian music service charges, making every ARR number
+  # implausible. This is a uniform linear scale on all value, so policy rankings and
+  # the shape of the budget curve are unchanged by it -- only the rupee headline moves.
+  ntd_to_inr: 1.0
+
+  # Rail mix. KKBox never published what payment_method_id means, so the rail cannot be
+  # recovered from the data -- it is ASSIGNED, deterministically from a hash of the
+  # customer id so it is stable across runs. swept: true, and flagged as synthetic in
+  # docs/model_card.md. Shares must sum to 1.
+  rail_mix:
+    upi_autopay: 0.55
+    card: 0.25
+    enach: 0.15
+    ppi: 0.05
+
+  # UPI AutoPay needs additional-factor authentication above this per-debit amount, so
+  # mandates above it are assigned to another rail. At ntd_to_inr: 1.0 it binds on zero
+  # rows: the largest per-debit amount in the built book is 210 (the largest amount
+  # anywhere in the transaction log is 2,000, on plans no surviving mandate is on). It
+  # is kept because ntd_to_inr is a knob: raise it and the rule starts doing work.
+  upi_autopay_afa_threshold_inr: 15000.0
+
+  # Mandate validity beyond the current cycle end. KKBox has no mandate-validity
+  # column at all, so this is pure overlay. swept: true.
+  mandate_validity_days: 730
+
+  # R (reachability option value) as a fraction of L. No public measurement exists for
+  # what an addressable channel to a customer is worth. swept: true.
+  reachability_fraction_of_ltv: 0.15
+
+  # `bd` (age) outside this range is not a plausible human age. 67.2% of members fall
+  # outside it, and the valid share swings from 0.091 (registered_via 4, 2.79M members)
+  # to 0.666 (registered_via 3, 1.64M) -- so its missingness encodes signup channel.
+  # Nulled, not dropped, and not used as a model feature. See docs/mapping.md 3.6.
+  plausible_age_years: [13, 90]
+
+  # payment_plan_days = 0 on 870,124 rows (4%), 93% of them auto-renewing and paid --
+  # a missing field, not a zero-day plan. Imputed; see docs/mapping.md 3.5.
+  default_debit_frequency_days: 30
+
 seed: 20260905

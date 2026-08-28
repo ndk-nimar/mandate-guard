@@ -10,13 +10,14 @@ Three rules are enforced here rather than trusted:
 from __future__ import annotations
 
 import hashlib
+from datetime import date
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-from mandateguard.models import Channel, PolicyRule
+from mandateguard.models import Channel, PolicyRule, Rail
 
 ROOT = Path(__file__).resolve().parents[3]
 PARAMS_PATH = ROOT / "config" / "params.yaml"
@@ -71,11 +72,44 @@ class HorizonParams(BaseModel):
     budget_inr_per_week: float = Field(ge=0)
 
 
+class IndiaParams(BaseModel):
+    """The KKBox -> Indian-mandate bridge (T1.3). Every field here is a decision.
+
+    The rail mix is the one that most needs guarding: it is a synthetic overlay, and a
+    mix that does not sum to 1 would silently drop or double-count part of the book.
+    """
+
+    snapshot_date: date
+    ntd_to_inr: float = Field(gt=0)
+    rail_mix: dict[Rail, float]
+    upi_autopay_afa_threshold_inr: float = Field(gt=0)
+    mandate_validity_days: int = Field(gt=0)
+    reachability_fraction_of_ltv: float = Field(ge=0)
+    plausible_age_years: tuple[int, int]
+    default_debit_frequency_days: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def check_mix(self) -> IndiaParams:
+        if any(share < 0 for share in self.rail_mix.values()):
+            raise ValueError("india.rail_mix shares must be non-negative")
+        total = sum(self.rail_mix.values())
+        if abs(total - 1.0) > 1e-9:
+            raise ValueError(
+                f"india.rail_mix must sum to 1, got {total}. A mix that does not sum to "
+                "1 silently drops or double-counts part of the mandate book."
+            )
+        low, high = self.plausible_age_years
+        if not 0 < low < high:
+            raise ValueError(f"india.plausible_age_years must be 0 < low < high, got {low}, {high}")
+        return self
+
+
 class Params(BaseModel):
     channels: list[Channel]
     value: ValueParams
     recovery: RecoveryParams
     horizon: HorizonParams
+    india: IndiaParams
     seed: int
 
 

@@ -113,10 +113,13 @@ Goal: a lapse-hazard model fit on real subscriber data that beats a naive baseli
   how many `is_cancel=1` rows are followed by another transaction?
   **Done when:** the answer is a number written into `docs/mapping.md`.
 
-- [ ] **T1.3 — India mapping layer.** `payment_method_id` → rail (UPI AutoPay / card / PPI
+- [x] **T1.3 — India mapping layer.** `payment_method_id` → rail (UPI AutoPay / card / PPI
   / e-NACH); NTD → INR; `payment_plan_days` → debit frequency; `membership_expire_date` →
   mandate validity. Every mapping decision defended in prose, not just in code.
   **Done when:** `docs/mapping.md` is complete and `data/processed/mandates.parquet` exists.
+  **Done:** `docs/mapping.md` §3; 1,391,931 mandates (58.9% of subscribers), 105.0 MB.
+  Rail, mandate validity and `R` are synthetic overlays and labelled as such in §3.1;
+  `transactions_v2` stays out and is held back as out-of-time validation (§3.2).
 
 - [ ] **T1.4 — Person-period expansion.** Convert each subscriber into one row per week
   alive, with `event=1` on the lapse week. This is the shape a discrete-time survival model
