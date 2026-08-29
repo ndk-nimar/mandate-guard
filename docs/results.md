@@ -68,9 +68,9 @@ week, so the budget does not bind and each arm asks as much as it wants to.
 | arm | retained | rate | revocations caused | ARR retained (INR) | asks | INR/ask | net value (INR) | theta |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | P0 | 1,215.3 | 89.758% | 0.0 | 413,219 | 0 | 0.00 | 0 | -- |
-| P1 | 905.8 | 66.895% | 325.5 | 308,018 | 16,236 | -7.31 | -118,634 | -- |
-| P2 | 906.2 | 66.924% | 325.1 | 308,159 | 16,236 | -7.30 | -118,494 | -- |
-| P3 | 1,215.3 | 89.758% | 0.0 | 413,219 | 0 | 0.00 | 0 | -- |
+| P1 | 1,131.9 | 83.595% | 90.6 | 384,906 | 16,236 | -18.61 | -302,204 | -- |
+| P2 | 1,132.0 | 83.604% | 90.4 | 384,953 | 16,236 | -18.61 | -302,089 | -- |
+| P3 | 1,215.4 | 89.765% | 0.1 | 413,262 | 49 | 0.30 | 14 | -- |
 
 | arm | what it does |
 |---|---|
@@ -79,23 +79,30 @@ week, so the budget does not bind and each arm asks as much as it wants to.
 | `P2` | the same budget, rotated fairly. |
 | `P3` | top-B by expected rupee value, pricing backfire. |
 
-**`P3` asks nobody, and that is the result rather than a bug.** The arithmetic:
-
 ```
-cost of one ask  = backfire(1) x loss_on_revocation
-gain at hazard h = h x uplift x loss_on_lapse
+cost of one ask  = backfire(1) x channel softness x loss_on_revocation
+gain at hazard h = h x uplift x efficacy[channel] x loss_on_lapse
 ```
 
-At the shipped parameters an ask breaks even at a weekly hazard of about 0.37, and
-the riskiest mandate in this book sits just below that. So the value-maximising
-number of asks is zero -- while `P1` and `P2`, spending a budget that never binds,
-destroy INR 106,013 and
-INR 105,871 of ARR respectively.
+**`P3` buys 49 asks out of a possible 16,236** -- 0.30% of what
+the budget would allow -- and creates
+INR 14 of net value at INR 0.30
+per ask. It is barely worth doing: the gain is
+0.010% of the book.
+Selection here is not a large win; it is the difference between a small gain
+and a large loss.
 
-That is `problem.md` §5.1 measured instead of asserted: **the spend is not the
-constraint, the customer's patience is.** The channel cost of `P1`'s campaign is
-INR 811.80; the damage it does is three orders of
-magnitude larger.
+The large number in this table is on the other side. `P1` and `P2`, spending a
+budget that never binds, destroy
+INR 29,124 and
+INR 29,078 of profit respectively, while
+their entire channel spend is INR 811.80. That is
+`problem.md` §5.1 measured instead of asserted: **the spend is not the
+constraint, the customer's patience is.**
+
+`P1` and `P2` come out within a rupee of each other here because the budget does
+not bind -- both contact everyone every week, so there is nothing for a rotation
+to rotate. They separate as soon as the budget does bind, which is §3.
 
 ---
 
@@ -108,33 +115,40 @@ Profit is ARR retained less what was spent retaining it.
 | P0 | INR 0.00 | 0 | INR 413,219 | INR 0 | -- | -- |
 | P1 | INR 0.00 | 0 | INR 413,219 | INR 0 | -- | -- |
 | P2 | INR 0.00 | 0 | INR 413,219 | INR 0 | -- | -- |
-| P3 | INR 0.00 | 0 | INR 413,219 | INR 0 | -- | -- |
+| P3 | INR 0.61 | 49 | INR 413,260 | INR 41 | 5.6% | 0.8% |
 
 | budget | P0 | P1 | P2 | P3 |
 |---:|---:|---:|---:|---:|
 | 0.00 | 413,219 | 413,219 | 413,219 | 413,219 |
-| 0.44 | 413,219 | 412,589 | 413,045 | 413,219 |
-| 0.61 | 413,219 | 412,220 | 412,954 | 413,219 |
-| 0.85 | 413,219 | 411,824 | 412,845 | 413,219 |
-| 1.19 | 413,219 | 411,356 | 412,713 | 413,219 |
-| 1.67 | 413,219 | 410,613 | 412,501 | 413,219 |
-| 2.34 | 413,219 | 409,657 | 412,218 | 413,219 |
-| 3.28 | 413,219 | 408,101 | 411,813 | 413,219 |
-| 4.59 | 413,219 | 406,039 | 411,252 | 413,219 |
-| 6.42 | 413,219 | 403,010 | 410,384 | 413,219 |
-| 8.99 | 413,219 | 398,881 | 409,039 | 413,219 |
-| 12.59 | 413,219 | 393,279 | 406,953 | 413,219 |
-| 17.62 | 413,219 | 385,501 | 403,583 | 413,219 |
-| 24.67 | 413,219 | 374,651 | 397,574 | 413,219 |
-| 34.54 | 413,219 | 359,057 | 386,466 | 413,219 |
-| 48.36 | 413,219 | 337,456 | 362,727 | 413,219 |
-| 67.70 | 413,219 | 307,206 | 307,348 | 413,219 |
+| 0.44 | 413,219 | 413,044 | 413,177 | 413,258 |
+| 0.61 | 413,219 | 412,942 | 413,156 | 413,260 |
+| 0.85 | 413,219 | 412,835 | 413,127 | 413,260 |
+| 1.19 | 413,219 | 412,707 | 413,096 | 413,260 |
+| 1.67 | 413,219 | 412,502 | 413,045 | 413,260 |
+| 2.34 | 413,219 | 412,239 | 412,975 | 413,260 |
+| 3.28 | 413,219 | 411,812 | 412,880 | 413,260 |
+| 4.59 | 413,219 | 411,249 | 412,745 | 413,260 |
+| 6.42 | 413,219 | 410,413 | 412,545 | 413,260 |
+| 8.99 | 413,219 | 409,283 | 412,220 | 413,260 |
+| 12.59 | 413,219 | 407,743 | 411,698 | 413,260 |
+| 17.62 | 413,219 | 405,606 | 410,881 | 413,260 |
+| 24.67 | 413,219 | 402,628 | 409,355 | 413,260 |
+| 34.54 | 413,219 | 398,341 | 406,512 | 413,260 |
+| 48.36 | 413,219 | 392,407 | 400,182 | 413,260 |
+| 67.70 | 413,219 | 384,094 | 384,141 | 413,260 |
 
-**There is no inverted U here, and the plan expected one.** Zhang's published
-calibration has an interior optimum with under-asking twice as expensive as
-over-asking. At these parameter values the curve is monotone: every arm's optimum
-is a budget of zero. The shape only appears where an ask is worth making, which
-is what §4 maps.
+**`P3` has an interior optimum at INR 0.61 per
+week** -- 49 asks over the horizon, worth
+INR 41 more than doing nothing. Every other arm's
+optimum is still zero: they have no way to decline an ask, so more budget can
+only hurt them.
+
+The curve is **asymmetric in the direction Zhang predicted**. Halving the optimum
+budget costs 5.6% of the gain; doubling it costs 0.8%. Under-asking
+is the more expensive mistake here by a factor of about
+7x -- Zhang's calibration puts it at roughly 2x, so the shape
+agrees and the magnitude does not, which is what a different book and a different
+set of swept parameters should be expected to produce.
 
 ---
 
@@ -150,14 +164,14 @@ Cells give the challenger's advantage in rupees. **(parentheses)** mark cells wh
 
 | uplift \ backfire | 0.0005 | 0.0010 | 0.0030 | 0.0060 | 0.0120 | 0.0250 |
 |---|---:|---:|---:|---:|---:|---:|
-| **0.50** | +10,114 | +19,809 | (+56,702) | (+106,388) | (+187,964) | (+303,158) |
-| **1.00** | +9,713 | +19,259 | +56,110 | (+105,871) | (+187,584) | (+302,971) |
-| **2.00** | +9,354 | +18,556 | +55,035 | +104,851 | (+186,822) | (+302,597) |
-| **4.00** | +9,106 | +18,037 | +53,471 | +103,033 | +185,326 | (+301,845) |
-| **8.00** | +8,639 | +17,671 | +52,015 | +100,579 | +182,755 | +300,380 |
-| **16.00** | +7,784 | +16,896 | +51,734 | +98,968 | +179,968 | +298,238 |
+| **0.50** | +2,742 | +5,251 | +15,180 | +29,726 | (+57,455) | (+111,600) |
+| **1.00** | +2,234 | +4,721 | +14,605 | +29,118 | +56,861 | (+111,091) |
+| **2.00** | +1,218 | +3,718 | +13,547 | +28,042 | +55,740 | +110,084 |
+| **4.00** | -750 | +1,867 | +11,766 | +26,171 | +53,826 | +108,202 |
+| **8.00** | -4,427 | -1,797 | +8,579 | +23,097 | +50,741 | +105,144 |
+| **16.00** | -10,337 | -7,828 | +3,111 | +18,668 | +46,324 | +100,925 |
 
-The challenger judged at least one ask worth making in **72%** of the plane.
+The challenger judged at least one ask worth making in **92%** of the plane.
 
 ![Budget curve and sensitivity plane](img/sweeps.png)
 

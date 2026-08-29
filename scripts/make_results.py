@@ -32,6 +32,86 @@ RESULTS = ROOT / "docs" / "results.md"
 IMAGE = ROOT / "docs" / "img" / "sweeps.png"
 
 
+def _ladder_reading(ladder: list[world.RunMetrics]) -> list[str]:
+    """The prose for section 2, *derived* rather than typed.
+
+    A generated document whose numbers come from a run and whose claims come from a
+    string literal will eventually say the opposite of its own table -- and it did: the
+    first draft of this file said "P3 asks nobody" and stayed there while a sourced
+    channel prior moved P3 across the frontier. Claims that depend on the numbers have to
+    be computed from the numbers.
+    """
+    floor, queue, rotation, greedy = ladder
+    lines = [
+        "```",
+        "cost of one ask  = backfire(1) x channel softness x loss_on_revocation",
+        "gain at hazard h = h x uplift x efficacy[channel] x loss_on_lapse",
+        "```",
+        "",
+    ]
+    if greedy.asks_spent == 0:
+        lines += [
+            "**`P3` asks nobody, and that is the result rather than a bug.** At these",
+            "parameter values no mandate in the book is risky enough for an ask to break",
+            "even, so the value-maximising number of asks is zero.",
+        ]
+    else:
+        lines += [
+            f"**`P3` buys {greedy.asks_spent:,} asks out of a possible "
+            f"{queue.asks_spent:,}** -- {greedy.asks_spent / queue.asks_spent:.2%} of what",
+            "the budget would allow -- and creates",
+            f"INR {greedy.net_value_inr:,.0f} of net value at INR {greedy.inr_per_ask:,.2f}",
+            "per ask. It is barely worth doing: the gain is",
+            f"{(greedy.profit_inr - floor.profit_inr) / floor.profit_inr:.3%} of the book.",
+            "Selection here is not a large win; it is the difference between a small gain",
+            "and a large loss.",
+        ]
+    lines += [
+        "",
+        "The large number in this table is on the other side. `P1` and `P2`, spending a",
+        "budget that never binds, destroy",
+        f"INR {floor.profit_inr - queue.profit_inr:,.0f} and",
+        f"INR {floor.profit_inr - rotation.profit_inr:,.0f} of profit respectively, while",
+        f"their entire channel spend is INR {queue.channel_cost_inr:,.2f}. That is",
+        "`problem.md` §5.1 measured instead of asserted: **the spend is not the",
+        "constraint, the customer's patience is.**",
+        "",
+        "`P1` and `P2` come out within a rupee of each other here because the budget does",
+        "not bind -- both contact everyone every week, so there is nothing for a rotation",
+        "to rotate. They separate as soon as the budget does bind, which is §3.",
+    ]
+    return lines
+
+
+def _curve_reading(sweeps: list[sweep.ArmSweep]) -> list[str]:
+    """The prose for section 3, derived the same way and for the same reason."""
+    best = max(sweeps, key=lambda s: s.gain_over_floor_inr)
+    if best.optimum_is_doing_nothing:
+        return [
+            "**There is no inverted U here, and the plan expected one.** Zhang's published",
+            "calibration has an interior optimum with under-asking twice as expensive as",
+            "over-asking. At these parameter values every arm's optimum is a budget of",
+            "zero, so the curve is monotone and there is no optimum to be asymmetric",
+            "about. The shape only appears where an ask is worth making, which is what §4",
+            "maps.",
+        ]
+    under, over = best.asymmetry or (0.0, 0.0)
+    return [
+        f"**`{best.arm}` has an interior optimum at INR {best.optimum.budget_inr:,.2f} per",
+        f"week** -- {best.optimum.metrics.asks_spent:,} asks over the horizon, worth",
+        f"INR {best.gain_over_floor_inr:,.0f} more than doing nothing. Every other arm's",
+        "optimum is still zero: they have no way to decline an ask, so more budget can",
+        "only hurt them.",
+        "",
+        "The curve is **asymmetric in the direction Zhang predicted**. Halving the optimum",
+        f"budget costs {under:.1%} of the gain; doubling it costs {over:.1%}. Under-asking",
+        "is the more expensive mistake here by a factor of about",
+        f"{under / over:.0f}x -- Zhang's calibration puts it at roughly 2x, so the shape",
+        "agrees and the magnitude does not, which is what a different book and a different",
+        "set of swept parameters should be expected to produce.",
+    ]
+
+
 def main() -> int:
     params = load_params()
     split = scoring.split_at(
@@ -137,23 +217,7 @@ def main() -> int:
             "| `P2` | the same budget, rotated fairly. |",
             "| `P3` | top-B by expected rupee value, pricing backfire. |",
             "",
-            "**`P3` asks nobody, and that is the result rather than a bug.** The arithmetic:",
-            "",
-            "```",
-            "cost of one ask  = backfire(1) x loss_on_revocation",
-            "gain at hazard h = h x uplift x loss_on_lapse",
-            "```",
-            "",
-            "At the shipped parameters an ask breaks even at a weekly hazard of about 0.37, and",
-            "the riskiest mandate in this book sits just below that. So the value-maximising",
-            "number of asks is zero -- while `P1` and `P2`, spending a budget that never binds,",
-            f"destroy INR {ladder[0].profit_inr - ladder[1].profit_inr:,.0f} and",
-            f"INR {ladder[0].profit_inr - ladder[2].profit_inr:,.0f} of ARR respectively.",
-            "",
-            "That is `problem.md` §5.1 measured instead of asserted: **the spend is not the",
-            "constraint, the customer's patience is.** The channel cost of `P1`'s campaign is",
-            f"INR {ladder[1].channel_cost_inr:,.2f}; the damage it does is three orders of",
-            "magnitude larger.",
+            *_ladder_reading(ladder),
             "",
             "---",
             "",
@@ -172,11 +236,7 @@ def main() -> int:
                 for i, budget in enumerate(budgets)
             ],
             "",
-            "**There is no inverted U here, and the plan expected one.** Zhang's published",
-            "calibration has an interior optimum with under-asking twice as expensive as",
-            "over-asking. At these parameter values the curve is monotone: every arm's optimum",
-            "is a budget of zero. The shape only appears where an ask is worth making, which",
-            "is what §4 maps.",
+            *_curve_reading(sweeps),
             "",
             "---",
             "",

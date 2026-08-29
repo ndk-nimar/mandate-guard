@@ -108,6 +108,7 @@ def params_payload(**overrides):
             "gamma_fatigue": 1.0,
             "fatigue_half_life_days": 15,
             "rho_template_reuse": 1.0,
+            "backfire_avoided_per_softer_step": 0.24,
         },
         "recovery": dict(RECOVERY),
         "intervention": dict(INTERVENTION),
@@ -211,3 +212,69 @@ def test_the_first_ask_and_anything_before_it_carry_the_first_rate():
     params = Params.model_validate(params_payload())
     assert params.intervention.backfire(0) == pytest.approx(0.006)
     assert params.intervention.backfire(1) == pytest.approx(0.006)
+
+
+# --------------------------------------------------------------------------------
+# The channel ladder (T3.1).
+# --------------------------------------------------------------------------------
+
+
+def test_duplicate_channel_names_are_rejected():
+    """A `Decision` names its channel as a string and the harness looks it up. Two
+    channels sharing a name means one can never be selected and the other silently
+    absorbs its decisions."""
+    twins = [
+        {"name": "sms", "cost_inr": 0.15, "efficacy_prior": 0.05, "intrusive": True},
+        {"name": "sms", "cost_inr": 0.35, "efficacy_prior": 0.09, "intrusive": True},
+    ]
+    with pytest.raises(ValidationError, match="must be unique"):
+        Params.model_validate(params_payload(channels=twins))
+
+
+def test_a_table_with_no_intrusive_channel_is_rejected():
+    """Non-intrusive channels cost nothing, so a table of only those gives every arm an
+    unbounded budget and the evaluation ladder compares nothing."""
+    free = [{"name": "in_app", "cost_inr": 0.0, "efficacy_prior": 0.02, "intrusive": False}]
+    with pytest.raises(ValidationError, match="no arm can spend its budget"):
+        Params.model_validate(params_payload(channels=free))
+
+
+def test_a_dominated_channel_is_rejected():
+    """`ivr` here is more expensive than `sms` and no more effective, so no optimiser
+    would ever choose it -- the multiple-choice knapsack would be quietly smaller than
+    the config claims. Channels exist to make the allocation a choice, not a sort."""
+    dominated = [
+        {"name": "sms", "cost_inr": 0.15, "efficacy_prior": 0.09, "intrusive": True},
+        {"name": "ivr", "cost_inr": 2.0, "efficacy_prior": 0.05, "intrusive": True},
+    ]
+    with pytest.raises(ValidationError, match="is dominated by"):
+        Params.model_validate(params_payload(channels=dominated))
+
+
+def test_the_shipped_channel_ladder_has_no_dominated_channel():
+    """The table that actually ships, checked rather than assumed. Costs and efficacies
+    both rise strictly across in-app, email, SMS, WhatsApp, IVR, letter, agent."""
+    shipped = load_params().channels
+    assert [c.name for c in shipped] == [
+        "in_app",
+        "email",
+        "sms",
+        "whatsapp",
+        "ivr",
+        "letter",
+        "agent",
+    ]
+    costs = [c.cost_inr for c in shipped]
+    efficacies = [c.efficacy_prior for c in shipped]
+    assert costs == sorted(costs)
+    assert efficacies == sorted(efficacies)
+
+
+def test_the_letter_channel_exists_because_a_regulator_requires_one():
+    """RBI's KYC (Amendment) Directions, 2025 require at least one letter in each
+    escalation phase (docs/calibration.md 1.2). That is an adjacent obligation rather
+    than this system's own, but it is why a channel ladder that stops at SMS cannot
+    model regulated Indian contact."""
+    letter = next(c for c in load_params().channels if c.name == "letter")
+    assert letter.cost_inr == 25.0
+    assert letter.intrusive

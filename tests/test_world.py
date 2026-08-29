@@ -65,6 +65,7 @@ def make_params(**overrides) -> Params:
             "gamma_fatigue": 1.0,
             "fatigue_half_life_days": 15,
             "rho_template_reuse": 1.0,
+            "backfire_avoided_per_softer_step": 0.24,
         },
         "recovery": {
             "after_lapse": 0.4,
@@ -283,11 +284,13 @@ def test_the_bulk_channel_is_the_cheapest_one_that_actually_costs_something(para
     assert channel.name == "post"
 
 
-def test_a_book_with_no_intrusive_channel_refuses_rather_than_asking_for_free():
+def test_a_book_with_no_intrusive_channel_refuses_at_config_load():
+    """T3.1 moved this check from policy construction to config validation, which is
+    strictly earlier: a table no arm can spend against is a broken *experiment*, and the
+    right time to say so is when the file is read, not when the third arm is built."""
     free_only = [{"name": "free", "cost_inr": 0.0, "efficacy_prior": 0.02, "intrusive": False}]
-    params = make_params(channels=free_only)
-    with pytest.raises(ValueError, match="no arm can spend its budget"):
-        ChronologicalCap(params)
+    with pytest.raises(ValidationError, match="no arm can spend its budget"):
+        make_params(channels=free_only)
 
 
 def test_the_queue_arm_asks_the_same_mandate_twice_and_the_rotation_does_not(params):
@@ -334,10 +337,13 @@ def test_greedy_declines_when_an_ask_is_worth_less_than_it_costs(params):
     had one would be worse than the sort it is meant to represent -- and the refusal
     reason has to be able to say "not worth it", not only "someone was ahead of you".
     """
+    # `post` has to stay *undominated* -- more effective than the free channel as well as
+    # dearer -- or T3.1's validator rejects the table before the policy ever sees it.
+    # What makes the ask worthless here is the backfire rate, not a weak channel.
     hopeless = make_params(
         channels=[
-            {"name": "free", "cost_inr": 0.0, "efficacy_prior": 0.02, "intrusive": False},
-            {"name": "post", "cost_inr": 1.0, "efficacy_prior": 0.001, "intrusive": True},
+            {"name": "free", "cost_inr": 0.0, "efficacy_prior": 0.001, "intrusive": False},
+            {"name": "post", "cost_inr": 1.0, "efficacy_prior": 0.002, "intrusive": True},
         ],
         intervention={
             "uplift_scale": 1.0,

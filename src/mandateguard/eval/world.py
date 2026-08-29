@@ -44,11 +44,12 @@ that happens anyway splits by the measured natural mix (`mapping.md` §5.6).
 from __future__ import annotations
 
 import duckdb
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from mandateguard.allocator.base import Policy
 from mandateguard.models import Channel, DecisionKind, MandateWeek
 from mandateguard.policy.loader import Params
+from mandateguard.value.price import Pricer
 
 
 class BookMandate(BaseModel):
@@ -67,6 +68,22 @@ class BookMandate(BaseModel):
     reachability_value_inr: float
     recovery_after_lapse: float
     recovery_after_revocation: float
+
+    @model_validator(mode="after")
+    def _lapse_recovers_better_than_revocation(self) -> BookMandate:
+        """`q > r`, checked at the earliest point the harness owns the data.
+
+        `MandateWeek` checks it too, but that is one object per mandate per week: a book
+        loaded with a bad pair would fail on the first week of the first arm, deep inside
+        a run, rather than when the book was read.
+        """
+        if self.recovery_after_lapse <= self.recovery_after_revocation:
+            raise ValueError(
+                f"{self.mandate_id}: recovery_after_lapse (q={self.recovery_after_lapse}) "
+                f"must exceed recovery_after_revocation "
+                f"(r={self.recovery_after_revocation}); see docs/problem.md 6.2"
+            )
+        return self
 
 
 class RunMetrics(BaseModel):
@@ -167,7 +184,7 @@ def run(
     )
     channels = {c.name: c for c in params.channels}
     intervention = params.intervention
-    alpha = params.value.alpha_reachability
+    pricer = Pricer(params)
 
     state = {m.mandate_id: _State() for m in book}
 
@@ -239,16 +256,23 @@ def run(
             if current.alive <= 0.0:
                 continue
 
-            hazard = entry.hazard
             channel = asked.get(entry.mandate_id)
             if channel is None:
                 backfire = 0.0
-                effective = hazard
+                effective = entry.hazard
             else:
                 current.asks += 1
                 current.last_ask_week = week
-                backfire = intervention.backfire(current.asks)
-                effective = hazard * (1.0 - intervention.uplift_scale * channel.efficacy_prior)
+                # The world and the policies share one definition of what an ask does.
+                # They did not, briefly, and it showed: the pricer softened backfire by
+                # channel (Chrome, `value/channel_priors.py`) while this loop charged the
+                # unsoftened rate, so P3 bought asks its own arithmetic called profitable
+                # and the harness scored them at a loss. A policy is allowed to be wrong
+                # about the world; it is not allowed to be wrong because two files
+                # disagree about physics.
+                backfire = pricer.backfire(entry, channel)
+                effective = pricer.effective_hazard(entry, channel)
+                net_value += pricer.price(entry, channel).net_inr
 
             caused = current.alive * backfire
             natural = current.alive * (1.0 - backfire) * effective
@@ -256,16 +280,6 @@ def run(
             revocations_caused += caused
             revocations_natural += natural * intervention.natural_revocation_share
             lapses += natural * (1.0 - intervention.natural_revocation_share)
-
-            if channel is not None:
-                # What the ask was worth, in the only currency that matters. Deaths it
-                # prevented are priced at the lapse loss because that is the ending it
-                # replaced; the revocations it caused are priced at the revocation loss,
-                # which is strictly larger.
-                prevented = current.alive * (1.0 - backfire) * (hazard - effective)
-                net_value += prevented * entry.loss_on_lapse()
-                net_value -= caused * entry.loss_on_revocation(alpha)
-                net_value -= channel.cost_inr
 
             current.alive *= 1.0 - (backfire + (1.0 - backfire) * effective)
 

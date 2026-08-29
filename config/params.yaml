@@ -4,9 +4,27 @@
 # marked `swept: true` -- meaning we do not know it, no public measurement exists, and
 # eval/sweep.py varies it rather than asserting a value. See docs/problem.md 10.
 
+# T3.1 -- the channel ladder. cost_inr and efficacy_prior are per contact.
+# `intrusive: false` channels do not consume the ask budget (docs/problem.md 5.3) but
+# still incur fatigue.
+#
+# Costs are SWEPT, not sourced: the ordering is not in doubt and the magnitudes are
+# plausible Indian rate-card figures, but no single published table covering all seven
+# was found (docs/calibration.md 5). Efficacy figures are PRIORS and are labelled as
+# such -- T2.8's sensitivity grid exists because of them.
+#
+# The loader rejects a table where any channel is DOMINATED (at least as expensive and
+# no more effective than another). A dominated channel is one no optimiser would ever
+# choose, which would make the multiple-choice knapsack quietly smaller than this file
+# claims -- and channels exist here to make the allocation a choice rather than a sort.
+#
+# `letter` is not decoration. RBI's KYC (Amendment) Directions, 2025 require at least
+# three intimations before a periodic-updation due date and three reminders after it,
+# *each phase including at least one by letter* (docs/calibration.md 1.2). That is an
+# adjacent obligation, not this system's own -- it governs KYC updation, not e-mandate
+# re-consent -- but it establishes that a system modelling regulated Indian contact has
+# to be able to express a letter at all.
 channels:
-  # cost_inr and efficacy_prior per contact. `intrusive: false` channels do not consume
-  # the ask budget (docs/problem.md 5.3) but still incur fatigue.
   - {name: in_app,   cost_inr: 0.00,  efficacy_prior: 0.02, intrusive: false}
   - {name: email,    cost_inr: 0.05,  efficacy_prior: 0.03, intrusive: true}
   - {name: sms,      cost_inr: 0.15,  efficacy_prior: 0.05, intrusive: true}
@@ -24,8 +42,19 @@ value:
   # Duolingo KDD 2020 -- fatigue magnitude and half-life in days.
   gamma_fatigue: 25.0
   fatigue_half_life_days: 15
-  # Duolingo KDD 2020 -- penalty for reusing the previous template.
+  # Duolingo KDD 2020 -- penalty for reusing the previous template. This is the one
+  # place the LLM layer touches the optimiser's arithmetic: without it, T4.3's notice
+  # composer is a nicer sentence with no consequence for the allocation.
   rho_template_reuse: 5.0
+
+  # Chrome, USENIX Security 2021 (~300M users). A quieter permission surface lost 2-5%
+  # of grants and avoided 17-31% of permanent refusals. The grant-loss half is already
+  # in the channel table -- efficacy_prior runs 0.02 to 0.28 -- so only the avoided-harm
+  # half is applied here, once per step down the cost ladder. 0.24 is the midpoint of
+  # the published 17-31%. Chrome measured ONE step between two UIs, not a seven-rung
+  # ladder; treating each rung as one Chrome-sized step is this project's extrapolation
+  # and is recorded as such in docs/calibration.md 4.
+  backfire_avoided_per_softer_step: 0.24
 
 recovery:
   # q and r from docs/problem.md 6.2. q > r is enforced twice: in models.Mandate when a

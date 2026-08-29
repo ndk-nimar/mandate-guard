@@ -165,6 +165,23 @@ class MandateWeek(BaseModel):
         default=None, description="d[i,t] in weeks; None if never contacted"
     )
 
+    @model_validator(mode="after")
+    def _lapse_recovers_better_than_revocation(self) -> Self:
+        """`q > r`, enforced on the *view* as well as on the mandate.
+
+        `Mandate` has carried this since T0.6, but the policy never sees a `Mandate` --
+        it sees this. The harness builds these from the forecast, so an invariant that
+        only guarded the construction path would not guard the object every arm actually
+        prices against.
+        """
+        if self.recovery_after_lapse <= self.recovery_after_revocation:
+            raise ValueError(
+                f"recovery_after_lapse (q={self.recovery_after_lapse}) must exceed "
+                f"recovery_after_revocation (r={self.recovery_after_revocation}); "
+                "see docs/problem.md 6.2"
+            )
+        return self
+
     def loss_on_lapse(self) -> float:
         """L * (1 - q) -- what a quiet ending costs."""
         return self.ltv_remaining_inr * (1.0 - self.recovery_after_lapse)

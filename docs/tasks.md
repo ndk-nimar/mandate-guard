@@ -294,13 +294,19 @@ just a greedy sort — fixed by giving channels different costs, which makes it 
 multiple-choice knapsack. And single-period allocation cannot express "ask later" — fixed
 by making the decision variable `(mandate, channel, week)`.
 
-- [ ] **T3.1 — Channel cost table** in `config/params.yaml`: in-app ₹0, email ₹0.05, SMS
+- [x] **T3.1 — Channel cost table** in `config/params.yaml`: in-app ₹0, email ₹0.05, SMS
   ₹0.15, WhatsApp ₹0.35, IVR ₹2, physical letter ₹25, agent call ₹40 — each with its own
   efficacy prior. Channel variation is also a regulatory requirement (RBI KYC directions
   want at least one physical letter per phase), not decoration.
   **Done when:** loaded and validated.
+  **Done:** the loader now rejects duplicate names, a table with no intrusive channel,
+  and — the useful one — any **dominated** channel (as cheap and no less effective than
+  another). A dominated channel is one no optimiser would ever pick, which would make
+  T3.3's multiple-choice knapsack quietly smaller than the config claims. The letter
+  channel is sourced: RBI's KYC (Amendment) Directions, 2025 require at least one letter
+  per escalation phase (`docs/calibration.md` §1.2).
 
-- [ ] **T3.2 — `value/` — the four-term rupee price.** Each term traces to a different
+- [x] **T3.2 — `value/` — the four-term rupee price.** Each term traces to a different
   paper:
   - `value/prices.py` — **LinkedIn, KDD 2016:** separate mu (good-outcome price) and nu
     (complaint price). Not one netted number.
@@ -327,6 +333,13 @@ by making the decision variable `(mandate, channel, week)`.
   **Done when:** each file has a docstring naming its source paper, and a unit test — plus
   one test that fails if `q <= r`, and one that asserts the loss on revocation exceeds the
   loss on lapse for the same mandate.
+  **Done:** five modules plus `value/price.py` composing them, 24 tests. Both named
+  assertions are in `tests/test_value.py`. Writing them found two things: `MandateWeek`
+  did **not** enforce `q > r` (only `Mandate` did, and the policy never sees a `Mandate`),
+  and the world and the pricer were using **different physics** — the pricer softened
+  backfire by channel and the harness charged the unsoftened rate, so P3 bought asks its
+  own arithmetic called profitable and the harness scored them at a loss. Both fixed;
+  there is now one definition of what an ask does, shared by the simulator and every arm.
 
 - [ ] **T3.3 — P4 `MCKP` batch solver.** Multiple-Choice Knapsack: per mandate choose **at
   most one** channel, each with its own cost and efficacy. PuLP + CBC. **Depends on T0.3.**

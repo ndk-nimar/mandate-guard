@@ -25,12 +25,18 @@ POLICY_PATH = ROOT / "policy" / "mandate_policy.yaml"
 
 
 class ValueParams(BaseModel):
-    mu_good_outcome: float
-    nu_complaint: float
-    alpha_reachability: float
-    gamma_fatigue: float
+    """The four terms of the rupee price (T3.2), each traced to a different paper."""
+
+    mu_good_outcome: float = Field(ge=0)
+    nu_complaint: float = Field(ge=0)
+    alpha_reachability: float = Field(ge=0)
+    gamma_fatigue: float = Field(ge=0)
     fatigue_half_life_days: int = Field(gt=0)
-    rho_template_reuse: float
+    rho_template_reuse: float = Field(ge=0)
+    backfire_avoided_per_softer_step: float = Field(ge=0, lt=1)
+    """Chrome, USENIX Security 2021. Strictly below 1: at 1 the softest channel would
+    carry exactly zero backfire, which would make it free to spam and hand every arm an
+    unbounded ask budget through the back door."""
 
 
 class RecoveryParams(BaseModel):
@@ -143,6 +149,63 @@ class IndiaParams(BaseModel):
         return self
 
 
+def _check_channels(channels: list[Channel]) -> list[Channel]:
+    """Three things a channel table has to be before an optimiser can use it.
+
+    **Names unique.** A `Decision` names its channel as a string and the harness looks it
+    up; two channels sharing a name means one of them can never be selected and the other
+    silently absorbs its decisions.
+
+    **At least one intrusive channel.** Non-intrusive channels cost nothing
+    (`docs/problem.md` 5.3), so a table of only those gives every arm an unbounded budget
+    and the ladder compares nothing.
+
+    **No dominated channel.** If a channel is at least as cheap *and* at least as
+    effective as another, nothing would ever choose the other one -- and the
+    multiple-choice knapsack (T3.3) is then quietly smaller than the config claims.
+    That is not an error in the data, it is an error in the experiment: the whole reason
+    channels have distinct costs is to make the allocation a genuine choice rather than
+    a sort (`problem.md` 5.2).
+    """
+    names = [c.name for c in channels]
+    if len(set(names)) != len(names):
+        duplicates = sorted({n for n in names if names.count(n) > 1})
+        raise ValueError(
+            f"channel names must be unique; {duplicates} appear more than once. A "
+            "Decision names its channel as a string, so a duplicate makes one of them "
+            "unreachable and the other silently absorb its decisions."
+        )
+    if not any(c.intrusive for c in channels):
+        raise ValueError(
+            "at least one channel must be intrusive, or no arm can spend its budget and "
+            "the evaluation ladder compares nothing. See docs/problem.md 5.3."
+        )
+    for cheap in channels:
+        for dear in channels:
+            if cheap.name == dear.name:
+                continue
+            cheaper = cheap.cost_inr <= dear.cost_inr
+            better = cheap.efficacy_prior >= dear.efficacy_prior
+            if (
+                cheaper
+                and better
+                and (cheap.cost_inr, -cheap.efficacy_prior)
+                != (
+                    dear.cost_inr,
+                    -dear.efficacy_prior,
+                )
+            ):
+                raise ValueError(
+                    f"channel {dear.name!r} (cost {dear.cost_inr}, efficacy "
+                    f"{dear.efficacy_prior}) is dominated by {cheap.name!r} (cost "
+                    f"{cheap.cost_inr}, efficacy {cheap.efficacy_prior}): no optimiser "
+                    "would ever choose it, so the multiple-choice knapsack is smaller "
+                    "than this config claims. Channels exist to make the allocation a "
+                    "choice rather than a sort -- see docs/problem.md 5.2."
+                )
+    return channels
+
+
 class Params(BaseModel):
     channels: list[Channel]
     value: ValueParams
@@ -151,6 +214,11 @@ class Params(BaseModel):
     horizon: HorizonParams
     india: IndiaParams
     seed: int
+
+    @model_validator(mode="after")
+    def check_channels(self) -> Params:
+        _check_channels(self.channels)
+        return self
 
 
 class Policy(BaseModel):

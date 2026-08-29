@@ -51,6 +51,43 @@ clause references. Until that runs, the rules above are secondary reporting, and
 distinction matters: a secondary source is enough to size a market and not enough to
 compile a compliance rule from.
 
+### 1.2 An adjacent obligation: KYC periodic updation
+
+Not this system's own regulation -- it governs **KYC periodic updation**, not e-mandate
+re-consent -- but it is what establishes that a channel ladder including a physical letter
+is a requirement of regulated Indian contact rather than a modelling flourish.
+
+**RBI (Know Your Customer) (Amendment) Directions, 2025**, dated 12 June 2025, to be
+implemented by 1 January 2026:
+
+| requirement | figure | status |
+|---|---|---|
+| Advance intimations before the due date | **at least three**, including **at least one by letter** | verified |
+| Reminders after the due date | **at least three**, including **at least one by letter** | verified |
+| Content of each communication | instructions, escalation mechanism, consequences of non-compliance | verified |
+| Record of every intimation and reminder, per customer | required, for audit trail | verified |
+| Periodic updation frequency | 2 years high-risk, 8 medium, 10 low | verified |
+
+Two things this pins.
+
+**The `letter` channel at INR 25 is load-bearing** (`config/params.yaml`, T3.1). A
+regulator that mandates at least one letter per escalation phase is a regulator whose
+world cannot be modelled with SMS alone, and an allocator that can only choose *whether*
+to contact rather than *how* cannot express the constraint at all.
+
+**The audit trail is the refusal ledger.** "Record the intimation sent to each customer in
+their system" is the same requirement T5.1 was already designed around, arrived at from
+the opposite direction. The ledger records not-asked decisions too, which is more than
+this direction demands -- but the direction is why "we log what we sent" is a compliance
+feature and not merely good engineering.
+
+**What this is not.** It does not say anything about how often a merchant may contact a
+customer about a *mandate*, and it must not be quoted as if it did.
+
+Source: [RBI (Know Your Customer) (Amendment) Directions, 2025, 12 June
+2025](https://pdicai.org/Docs/RBI-2025-26-51_1262025151347878.pdf) ·
+[Saraf & Partners summary](https://sarafpartners.com/rbi-notifies-amendments-to-reserve-bank-of-india-know-your-customer-kyc-directions-2016/)
+
 ---
 
 ## 2. The market
@@ -153,6 +190,7 @@ and the results are reported as a region, not a point.
 | `value.rho_template_reuse` | 5.0 | same |
 | `channels[].cost_inr` | ₹0 to ₹40 | Indian channel rate cards, but not from one citable published table — see §5 |
 | `channels[].efficacy_prior` | 0.02 to 0.28 | **priors, not measurements**, and the sensitivity grid (T2.8) exists because of it |
+| `value.backfire_avoided_per_softer_step` | 0.24 | the *number* is sourced -- the midpoint of Chrome's published 17-31% -- but **its application is an extrapolation**, see below |
 
 `india.ntd_to_inr: 1.0` is a separate case and is neither sourced nor swept: it is a
 deliberate **decision** to read KKBox's price ladder (149/129/119/99 NTD) as India's
@@ -179,6 +217,17 @@ circular text in T4.1.
 ₹0.35 WhatsApp, ₹2 IVR, ₹25 letter, ₹40 agent call. These are plausible Indian rate-card
 magnitudes and the *ordering* is not in doubt, but no single published table was found that
 gives all seven. They are treated as swept in §4 rather than presented as sourced.
+
+**Chrome's 17-31%, applied seven times.** `value.backfire_avoided_per_softer_step: 0.24`
+is the midpoint of a genuinely published range: Chrome's quieter permission surface avoided
+17-31% of permanent refusals across ~300M users. What is *not* published is that the same
+discount applies at every rung of a seven-channel ladder from an in-app nudge to an agent
+call. Chrome measured **one** step between **two** UIs. Compounding it puts an email's
+backfire at 0.76⁵ ≈ 25% of an agent call's, and **that extrapolation is load-bearing**: it
+is what moved the shipped `(uplift, backfire)` point from the wrong side of `results.md`
+§4's frontier to the right one. Before this project claims that asking pays at the shipped
+parameters, this constant needs either a measurement or its own sweep axis. It currently
+has neither.
 
 **Channel efficacy priors.** Not measurements of anything. They are priors, they are
 labelled as priors in `params.yaml`, and T2.8's sensitivity grid is the entire reason the

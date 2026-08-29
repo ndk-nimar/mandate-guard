@@ -40,6 +40,7 @@ from mandateguard.models import (
     MandateWeek,
 )
 from mandateguard.policy.loader import Params
+from mandateguard.value.price import AskPrice, Pricer
 
 
 def bulk_channel(channels: list[Channel]) -> Channel:
@@ -179,31 +180,29 @@ class GreedyEV(Policy):
 
     def __init__(self, params: Params) -> None:
         self.channel = bulk_channel(params.channels)
-        self.intervention = params.intervention
-        self.alpha = params.value.alpha_reachability
+        self.pricer = Pricer(params)
 
-    def value_of_asking(self, entry: MandateWeek) -> float:
-        backfire = self.intervention.backfire(entry.asks_so_far + 1)
-        effective = entry.hazard * (
-            1.0 - self.intervention.uplift_scale * self.channel.efficacy_prior
-        )
-        prevented = entry.alive * (1.0 - backfire) * (entry.hazard - effective)
-        return (
-            prevented * entry.loss_on_lapse()
-            - entry.alive * backfire * entry.loss_on_revocation(self.alpha)
-            - self.channel.cost_inr
-        )
+    def value_of_asking(self, entry: MandateWeek) -> AskPrice:
+        """Priced by the shared value layer (T3.2), through this arm's one channel.
+
+        P3 and P4 ask `value/` the same question and get the same answer. That is
+        deliberate: if they priced asks differently, "the optimiser beats the greedy
+        sort" would be a claim about two value functions, and this ladder exists to
+        isolate **allocation**. What P4 gets that P3 does not is the choice of channel
+        and a budget solved across the whole book at once -- not a better price.
+        """
+        return self.pricer.price(entry, self.channel)
 
     def allocate(self, book: list[MandateWeek], budget_inr: float, week: int) -> AllocationResponse:
         slots = _slots(budget_inr, self.channel)
-        values = {entry.mandate_id: self.value_of_asking(entry) for entry in book}
+        quotes = {entry.mandate_id: self.value_of_asking(entry) for entry in book}
         # Only positive-value asks are bought. A greedy policy that spent its whole
         # budget because it had one would be a worse policy than the sort it is meant to
         # represent -- and the refusal reason has to be able to say "this was not worth
         # it", not merely "someone else was ahead of you".
         order = sorted(
-            (entry for entry in book if values[entry.mandate_id] > 0),
-            key=lambda entry: (-values[entry.mandate_id], entry.mandate_id),
+            (entry for entry in book if quotes[entry.mandate_id].worth_asking),
+            key=lambda entry: (-quotes[entry.mandate_id].net_inr, entry.mandate_id),
         )
-        chosen = {entry.mandate_id: values[entry.mandate_id] for entry in order[:slots]}
+        chosen = {entry.mandate_id: quotes[entry.mandate_id].net_inr for entry in order[:slots]}
         return _respond(book, chosen, self.channel, week, "expected value below the week's cut-off")
