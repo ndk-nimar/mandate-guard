@@ -85,8 +85,12 @@ could break the plan later.
   `ruff format --check`, `pytest`. Create the public repo with `gh repo create`.
   **Done when:** green check on GitHub.
 
-- [ ] **T0.10 — Repo `CLAUDE.md`** and `docs/adr/0001-record-architecture-decisions.md`.
+- [x] **T0.10 — Repo `CLAUDE.md`** and `docs/adr/0001-record-architecture-decisions.md`.
   **Done when:** committed.
+  **Done:** ADR 0001 committed in Phase 0; `CLAUDE.md` written during Phase 2, once there
+  were enough repeated rules to be worth writing down rather than guessed at. Its first
+  section is the one that kept getting skipped: close every task by writing
+  `docs/worklog.md` and `docs/seekha.md` before starting the next one.
 
 > **GATE 0** — CI is green and an empty `Policy` implementation imports cleanly.
 
