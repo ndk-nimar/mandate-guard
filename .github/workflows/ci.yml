@@ -35,3 +35,42 @@ jobs:
         run: uv run pytest
         # RUN_S3 is deliberately unset: the two-process boot is a local/manual gate,
         # not a CI one. The in-process API contract test still runs here.
+
+  # GATE 2. Not "the script runs" -- "the script produces the file that is committed".
+  # A stranger's fork has to regenerate results.md byte for byte, and the only way to
+  # know that is to regenerate it here, on a different OS from the one it was written
+  # on, and fail on any difference at all.
+  results:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync (locked)
+        run: uv sync --frozen --all-extras --dev
+
+      # Reads data/sample/ only. No download, no MANDATEGUARD_DATA_DIR: the whole point
+      # of the committed slice (docs/mapping.md 4) is that this step needs nothing else.
+      - name: Regenerate results.md
+        run: uv run python scripts/make_results.py
+
+      - name: Fail if the committed results drifted
+        run: |
+          git --no-pager diff --stat -- docs/results.md docs/img/sweeps.png
+          git diff --exit-code -- docs/results.md docs/img/sweeps.png
+
+      # Only reached when the diff is clean, so this is the regenerated file and the
+      # committed one at once -- useful when the diff *is* dirty and someone needs to see
+      # what CI produced without reproducing the environment.
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results
+          path: |
+            docs/results.md
+            docs/img/sweeps.png

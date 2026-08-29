@@ -52,6 +52,13 @@ from sklearn.linear_model import LogisticRegression
 
 from mandateguard.risk.baseline import bin_conditions
 
+EMITTED_DECIMALS = 6
+"""Decimal places kept when a coefficient is written into the scoring expression.
+
+Six absorbs `lbfgs` convergence noise (order 1e-8) while changing a predicted hazard by
+about 1e-6 relative -- invisible at every precision this project publishes. See
+`FittedHazard.expression`."""
+
 FIT_SALT = "fit"
 """Salt for the training subsample's hash. Its own salt, like every other hash of a key
 in this repository -- see `mandates.RAIL_SALT` for the bug that made that a rule."""
@@ -202,13 +209,22 @@ class FittedHazard(BaseModel):
 
         Scored by the same `scoring.score` as every baseline, over the whole held-out
         frame rather than a subsample of it.
+
+        Coefficients are rounded to `EMITTED_DECIMALS` on the way in. `lbfgs` stops at a
+        convergence tolerance, not at an exact optimum, so the last few digits of a
+        coefficient are a property of the machine's BLAS rather than of the data -- and
+        GATE 2 asks a stranger's fork for a byte-identical `results.md`. Rounding moves
+        the fitted hazard by about one part in a million, which is four orders of
+        magnitude below anything this project reports, and it removes a whole class of
+        cross-platform difference that would otherwise surface as a failing CI diff
+        nobody could explain.
         """
         terms = " + ".join(
-            f"({beta!r}) * ({feature.sql})"
+            f"({round(beta, EMITTED_DECIMALS)!r}) * ({feature.sql})"
             for beta, feature in zip(self.coefficients, self.features, strict=True)
-            if beta != 0.0
+            if round(beta, EMITTED_DECIMALS) != 0.0
         )
-        return f"1.0 / (1.0 + exp(-(({self.intercept!r}) + {terms})))"
+        return f"1.0 / (1.0 + exp(-(({round(self.intercept, EMITTED_DECIMALS)!r}) + {terms})))"
 
     def ranked(self, limit: int = 12) -> list[tuple[str, float]]:
         """Coefficients by absolute size. Readable because every input is an indicator

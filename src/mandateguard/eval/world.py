@@ -99,6 +99,20 @@ class RunMetrics(BaseModel):
         return self.mandates_retained / self.mandates if self.mandates else 0.0
 
     @property
+    def profit_inr(self) -> float:
+        """ARR retained less what was spent to retain it.
+
+        The business-legible curve, and the one T2.7 sweeps. Backfire damage is already
+        inside `arr_retained_inr` -- a revoked mandate simply is not in it -- so this is
+        not double-counting: it is revenue kept minus money spent.
+
+        `net_value_inr` answers a different question (what did the asks themselves
+        create) and can be negative while profit is merely lower than the floor's. Both
+        are reported because a reader who sees only one will misread it.
+        """
+        return self.arr_retained_inr - self.channel_cost_inr
+
+    @property
     def inr_per_ask(self) -> float:
         """Net rupees created per ask. Negative means the arm is destroying value.
 
