@@ -180,12 +180,21 @@ Goal: a lapse-hazard model fit on real subscriber data that beats a naive baseli
   customers (`frequency_imputed`, `member_known`) and says they would not survive a move
   to a merchant's book.
 
-- [ ] **T1.10 — `docs/calibration.md`.** Every India-layer number mapped to its citation:
+- [x] **T1.10 — `docs/calibration.md`.** Every India-layer number mapped to its citation:
   UPI AutoPay 50M new mandates/month, 808M executions/month, 20M+ revocations/month, ~74%
   business decline across the top 50 banks; card post-2021 failure 20%+ in some categories;
   the 2021 migration at ~70% decline and 62.5M mandates over 9 months. **Verify the
   20M/month figure yourself** — you will be asked about it.
   **Done when:** no number anywhere in the repo lacks a source line.
+  **Done:** four origins, and every number in the repo is in exactly one — sourced,
+  measured, swept, or **unverified and named as such** (§5). The 20M/month figure is
+  verified: Business Standard, Sept 2025, citing NPCI via industry sources; it is a
+  *revocation* count driven by insufficient balance, not a churn count, and that is the
+  answer if the panel asks. Two corrections fell out: the volumes are **July 2025**
+  figures and `problem.md` now says so, and the 62.5M migration took about **eight**
+  months, not nine. The "card post-2021 failure 20%+" claim **could not be sourced** and
+  is struck. The RBI circular is real — RBI/DPSS/2026-27/396, 21 April 2026 — and its
+  ₹15,000 AFA ceiling is where `params.yaml`'s threshold comes from.
 
 > **GATE 1** — The hazard model beats the naive baseline on Brier score, and
 > `docs/model_card.md` is committed.

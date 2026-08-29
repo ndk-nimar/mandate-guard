@@ -84,7 +84,10 @@ india:
     ppi: 0.05
 
   # UPI AutoPay needs additional-factor authentication above this per-debit amount, so
-  # mandates above it are assigned to another rail. At ntd_to_inr: 1.0 it binds on zero
+  # mandates above it are assigned to another rail. SOURCED, not chosen: it is the
+  # general AFA ceiling in RBI/DPSS/2026-27/396 (Digital Payments -- E-Mandate Framework,
+  # 2026, 21 April 2026). The same circular exempts insurance premiums, mutual fund
+  # subscriptions and credit card bills up to 1,00,000. See docs/calibration.md 1. At ntd_to_inr: 1.0 it binds on zero
   # rows: the largest per-debit amount in the built book is 210 (the largest amount
   # anywhere in the transaction log is 2,000, on plans no surviving mandate is on). It
   # is kept because ntd_to_inr is a knob: raise it and the rule starts doing work.

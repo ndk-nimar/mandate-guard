@@ -34,12 +34,19 @@ transition period. It changes mandate validity, authentication on modification, 
 ₹15,000 threshold and its exemptions, and pre-debit notice requirements.
 
 The last comparable migration (2021) is the base rate for what happens next: roughly **70%
-transaction decline** at the peak, and **62.5 million mandates** taking about **nine
+transaction decline** at the peak, and **62.5 million mandates** taking about **eight
 months** to migrate.
 
-Current UPI AutoPay volumes give the scale of the exposed book: ~50M new mandates/month,
-~808M executions/month, and **20M+ revocations/month**. Every figure in this section is
-sourced in [`calibration.md`](./calibration.md); none of them are estimates of ours.
+Current UPI AutoPay volumes give the scale of the exposed book. **These are July 2025
+figures**, which are the most recent public ones — dated here on purpose, because an
+undated volume number in a 2026 document reads as a current one: ~50M new mandates/month,
+~808M executions/month, and **20M+ revocations/month**. The revocations are attributed to
+debit failures from insufficient balance rather than to customers deciding to leave, which
+is what makes them a population worth trying to save.
+
+Every figure in this section is sourced in [`calibration.md`](./calibration.md), with the
+publication, the date, and the exact period it describes; none of them are estimates of
+ours, and the ones this project could **not** verify are listed there too.
 
 ## 3. The decision problem
 

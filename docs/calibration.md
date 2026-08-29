@@ -1,0 +1,203 @@
+# Calibration — where every number comes from
+
+The rule this document enforces: **no number anywhere in this repository is allowed to
+exist without either a source, a measurement, or a `swept: true`.** Those three are the
+only legitimate origins for a figure here.
+
+* **Sourced** — a public figure, with the publication, the date, and the exact period it
+  describes. §1 and §2.
+* **Measured** — computed from the KKBox data by code in this repository, with the file
+  that computes it named. §3.
+* **Swept** — we do not know it, no public measurement exists, and `eval/sweep.py` varies
+  it rather than asserting a value. §4.
+
+Anything that fits none of those is in §5, which is the list of numbers this project uses
+and could **not** verify. That section exists because a document like this is worthless if
+it only records the successes.
+
+Verification pass run 2026-08-29. Every URL below was fetched or returned by search on
+that date.
+
+---
+
+## 1. The regulation
+
+**RBI Circular RBI/DPSS/2026-27/396, 21 April 2026 — "Digital Payments – E-Mandate
+Framework, 2026".** Verified: the circular exists, with that number and that date. It
+consolidates and repeals the RBI's recurring-transaction circulars issued between 2019 and
+2024.
+
+| claim | figure | status |
+|---|---|---|
+| Pre-debit notification lead time | **at least 24 hours** before the debit | verified |
+| Pre-debit notification contents | merchant name, amount, date and time of debit, transaction and e-mandate reference, reason for debit, grievance-redressal details | verified |
+| AFA-free ceiling, general | **₹15,000** per transaction; above it, AFA applies | verified |
+| AFA-free ceiling, insurance premiums / mutual fund subscriptions / credit-card bills | **₹1,00,000** per transaction | verified |
+| FASTag and NCMC auto-replenishment | inside the e-mandate framework | verified |
+| Transition period | none | **from the build plan; not independently verified** (§5) |
+
+**What this pins in code.** `config/params.yaml`'s
+`india.upi_autopay_afa_threshold_inr: 15000.0` is this circular's general AFA ceiling, not
+a guess. The ₹1 lakh exemption is the source of the red-team case in T4.8. The 24-hour
+lead time is what `agent/`'s deterministic compliance linter (T4.4) asserts on every
+generated notice — a linter checking a rule nobody sourced would be theatre.
+
+Sources: [Conventus Law](https://conventuslaw.com/report/rbis-digital-payments-e-mandate-framework-2026-consolidated-directions-for-recurring-digital-transactions/) ·
+[AMLEGALS](https://amlegals.com/digital-payments-e-mandate-framework-2026-rbis-new-rules-for-auto-debit-transactions/) ·
+[World Trade Scanner](https://worldtradescanner.com/RBI%20Issues%20Digital%20Payments%E2%80%93E-Mandate%20Framework%202026.htm)
+
+T4.1 reads the circular text itself and compiles it into `policy/mandate_policy.yaml` with
+clause references. Until that runs, the rules above are secondary reporting, and the
+distinction matters: a secondary source is enough to size a market and not enough to
+compile a compliance rule from.
+
+---
+
+## 2. The market
+
+### 2.1 UPI AutoPay volumes
+
+**Every figure here is July 2025, not 2026.** The build plan carried them undated, which
+would have let a 2026 pitch quote a 2025 number as current. They are the most recent
+public figures found on 2026-08-29.
+
+| figure | value | period |
+|---|---:|---|
+| New AutoPay mandate registrations | **50 million+** | July 2025 |
+| — same figure a year earlier | 26 million | July 2024 |
+| Mandate executions | **808 million** | July 2025 |
+| Mandate revocations | **~20 million per month** | reported Sept 2025 |
+| Business declines, top 50 remitter banks | **~74%** average | reported Sept 2025 |
+| SBI auto-debit approval rate | **~30%** (so ~70% fail) | reported Sept 2025 |
+
+The stated cause of the revocations is **debit-execution failure from insufficient balance
+at the moment the mandate fires** — not customer intent. That detail is load-bearing for
+this project: it means a large share of the 20M is a *recoverable* population, which is
+what makes a retention system worth building rather than a resignation letter.
+
+Source: [Business Standard, "UPI autopay revocations hit 20 mn per month on low customer
+balance", Sept 2025](https://www.business-standard.com/finance/news/upi-autopay-revocations-hit-20-mn-monthly-over-low-customer-balances-125090700500_1.html)
+(citing NPCI data and payments-industry sources).
+
+**Verified as instructed.** `tasks.md` T1.10 said: "Verify the 20M/month figure yourself —
+you will be asked about it." It is real, it is monthly, it is attributed to NPCI via
+industry sources rather than published directly by NPCI, and it is a *revocation* count,
+not a churn count. If asked, that last distinction is the answer: a revocation triggered by
+an insufficient balance is not a customer who decided to leave.
+
+### 2.2 The 2021 migration — the base rate for what happens next
+
+| figure | value | date |
+|---|---:|---|
+| Recurring-payment decline at the peak | **~70%** | after 1 Oct 2021 |
+| E-mandates registered in the first weeks | ~2 million | reported 26 Oct 2021 |
+| Banks compliant | 29, covering ~70% of credit cards and ~50% of debit cards | Oct 2021 |
+| Success rates across compliant banks | 30% to 75% | Oct 2021 |
+| Mandates registered by the RBI's own count | **62.5 million+**, across domestic and 3,400+ international merchants | RBI, June 2022 |
+
+**One correction to `problem.md`.** It says the 62.5 million took "about nine months". The
+RBI's figure is from **June 2022**, which is about **eight months** after the 1 October
+2021 enforcement date. The claim is directionally right and the number was rounded in the
+wrong direction; `problem.md` §2 should read "about eight months".
+
+Sources: [Inc42 on the ~70% decline](https://inc42.com/features/recurring-payment-conundrum-how-guidelines-have-shaken-indias-subscription-economy/) ·
+[Business Standard, "Banks process nearly 2 mn e-mandates after RBI order", 26 Oct 2021](https://www.business-standard.com/article/finance/banks-process-nearly-2-mn-e-mandates-for-auto-payment-after-rbi-order-121102601557_1.html) ·
+[Business Standard on the RBI's 62.5M figure and the ₹15,000 limit, 8 June 2022](https://www.business-standard.com/article/finance/new-e-mandate-guidelines-rbi-enhances-limit-for-e-mandates-on-credit-debit-cards-to-rs-15-000-122060800417_1.html)
+
+---
+
+## 3. What this project measured itself
+
+These are not sourced from anywhere. They are computed from the KKBox data by code in this
+repository, and the file that computes each one is named so a reader can re-derive it.
+
+| parameter | value | measured by | written up in |
+|---|---:|---|---|
+| `recovery.after_lapse` (`q`) | **0.407 → 0.41** | `data/cancel.py::analyse_lapses` | [`mapping.md`](./mapping.md) §2.4 |
+| `recovery.swept_ceiling_after_revocation` | **0.293 → 0.29** | `data/cancel.py::analyse` | §2.3 |
+| Mandate book size | 1,392,175 (58.9% of subscribers) | `data/mandates.py::build_book` | §3.7 |
+| Person-weeks in the frame | 58,079,041 over 1,379,341 spells | `data/periods.py::build` | §5.6 |
+| Per-week death rate | 0.0130 | same | §5.6 |
+| Baseline hazard, weeks 4-7 | 0.0740 (4.5x the average) | same | §5.7 |
+| Hazard model Brier / log loss | 0.006817 / 0.0369 | `risk/hazard.py` | [`eval.md`](./eval.md) §2.4 |
+| Expected calibration error | 0.00363 | `risk/calibration.py` | §3 |
+
+**`q` is measured and it moved against this project's interests.** It replaced a
+provisional 0.35, and 0.41 means lapsed mandates self-heal *more* often than the plan
+assumed — so every saving figure downstream is smaller. That is recorded here because a
+calibration document that only contains numbers that helped would not be a calibration
+document.
+
+**`r` is measured only as a ceiling.** KKBox's nearest analogue is recovery after an in-app
+cancellation, at 0.293. Re-subscribing to a music app is one tap; a revoked UPI AutoPay
+mandate needs a fresh mandate and a fresh bank authentication. So 0.293 bounds `r` from
+above and does not measure it, and `r` stays swept over (0, 0.29].
+
+---
+
+## 4. Swept, because nobody knows
+
+Every constant here is one where no public measurement exists and inventing one would be
+the fabrication this document is designed to prevent. `eval/sweep.py` varies each of them
+and the results are reported as a region, not a point.
+
+| parameter | value in `params.yaml` | why it cannot be sourced |
+|---|---:|---|
+| `india.rail_mix` | 0.55 / 0.25 / 0.15 / 0.05 | KKBox never published what `payment_method_id` means; the rail is **assigned from a hash** (`mapping.md` §3.3) |
+| `india.mandate_validity_days` | 730 | KKBox has no mandate-validity column at all |
+| `india.reachability_fraction_of_ltv` | 0.15 | no public measurement exists for what an addressable channel to a customer is worth |
+| `recovery.after_revocation` (`r`) | 0.08 | see §3; swept over (0, 0.29] |
+| `value.mu_good_outcome`, `value.nu_complaint` | 1.0, 1.0 | LinkedIn (KDD 2016) establishes that the two prices must be *separate*, not what either is |
+| `value.alpha_reachability` | 1.0 | Twitter/X (2022) establishes the term, not its magnitude |
+| `value.gamma_fatigue`, `fatigue_half_life_days` | 25.0, 15 | Duolingo (KDD 2020) gives the functional form and an approximate half-life, not a rupee magnitude |
+| `value.rho_template_reuse` | 5.0 | same |
+| `channels[].cost_inr` | ₹0 to ₹40 | Indian channel rate cards, but not from one citable published table — see §5 |
+| `channels[].efficacy_prior` | 0.02 to 0.28 | **priors, not measurements**, and the sensitivity grid (T2.8) exists because of it |
+
+`india.ntd_to_inr: 1.0` is a separate case and is neither sourced nor swept: it is a
+deliberate **decision** to read KKBox's price ladder (149/129/119/99 NTD) as India's
+(149/129/119/99 INR), argued at length in `mapping.md` §3.4. It is not the exchange rate
+and does not claim to be.
+
+---
+
+## 5. Numbers this project uses and could not verify
+
+The honest half of the document.
+
+**"Card post-2021 failure 20%+ in some categories."** Carried from the build plan. Not
+found on 2026-08-29. Until it is sourced it must not appear in the pitch, the video, or
+`problem.md`. The 2021 figures in §2.2 are verified and say enough.
+
+**"No transition period" for the April 2026 framework.** The secondary reporting describes
+the framework as consolidating and repealing earlier circulars, and none of it stated a
+transition window either way. Absence of a stated transition is not the same as a stated
+absence, and the difference matters for a "why now" argument. To be settled from the
+circular text in T4.1.
+
+**Channel cost table (`params.yaml` `channels[]`).** ₹0 in-app, ₹0.05 email, ₹0.15 SMS,
+₹0.35 WhatsApp, ₹2 IVR, ₹25 letter, ₹40 agent call. These are plausible Indian rate-card
+magnitudes and the *ordering* is not in doubt, but no single published table was found that
+gives all seven. They are treated as swept in §4 rather than presented as sourced.
+
+**Channel efficacy priors.** Not measurements of anything. They are priors, they are
+labelled as priors in `params.yaml`, and T2.8's sensitivity grid is the entire reason the
+project can carry them without claiming them.
+
+**The prior-art results** — LinkedIn's −64.5% volume / −1.8% sessions / −47% complaints,
+Pinterest's inverted U, Chrome's ~300M-user quiet UI result, Duolingo's fatigue half-life,
+ARMMAN's Whittle-index arm, Adyen's ~6% contextual-bandit lift — are cited from their
+published papers in [`prior_art.md`](./prior_art.md), which is where each one's exact claim
+and page reference belongs. They are not re-verified here; this document covers the numbers
+this project *asserts*, and those are numbers it *cites*.
+
+---
+
+## 6. What to fix
+
+1. `problem.md` §2: "about nine months" → **"about eight months"** (§2.2).
+2. `problem.md` §2: the UPI AutoPay volumes need the words **"July 2025"** attached, or a
+   2026 reader will take them as current (§2.1).
+3. Drop the unverified "card post-2021 failure 20%+" claim wherever it appears, or source
+   it (§5).
+4. Settle the transition-period question from the circular text during T4.1 (§1).
