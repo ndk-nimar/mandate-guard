@@ -86,6 +86,14 @@ INDIA = {
 }
 
 
+INTERVENTION = {
+    "uplift_scale": 1.0,
+    "backfire_first_ask": 0.006,
+    "backfire_twelfth_ask": 0.06,
+    "natural_revocation_share": 0.634,
+}
+
+
 def params_payload(**overrides):
     """A minimal valid Params body, so each test can break exactly one thing."""
     payload = {
@@ -102,6 +110,7 @@ def params_payload(**overrides):
             "rho_template_reuse": 1.0,
         },
         "recovery": dict(RECOVERY),
+        "intervention": dict(INTERVENTION),
         "horizon": {"weeks": 12, "budget_inr_per_week": 500.0},
         "india": dict(INDIA),
         "seed": 1,
@@ -168,3 +177,37 @@ def test_the_shipped_snapshot_does_not_run_past_the_transaction_data():
     from datetime import date
 
     assert load_params().india.snapshot_date <= date(2017, 2, 28)
+
+
+# --------------------------------------------------------------------------------
+# Intervention parameters (T2.1).
+# --------------------------------------------------------------------------------
+
+
+def test_backfire_that_shrinks_with_repetition_is_rejected():
+    """A world where the twelfth ask is safer than the first removes the entire reason
+    to ration asks, and every arm in the ladder would then correctly recommend spraying.
+    That is a legitimate world; it is not the one this project models, and it must not be
+    reachable by a typo in a YAML file."""
+    bad = dict(INTERVENTION, backfire_first_ask=0.06, backfire_twelfth_ask=0.006)
+    with pytest.raises(ValidationError, match="removes the reason to ration"):
+        Params.model_validate(params_payload(intervention=bad))
+
+
+def test_the_backfire_ladder_is_geometric_between_its_two_anchors():
+    """The anchors are given as a ratio -- 0.6% to 6% is "ten times worse", not "5.4
+    points worse" -- so a linear ladder would put the growth in the wrong place."""
+    params = Params.model_validate(params_payload())
+    ladder = [params.intervention.backfire(n) for n in range(1, 13)]
+    assert ladder[0] == pytest.approx(0.006)
+    assert ladder[-1] == pytest.approx(0.06)
+    assert ladder == sorted(ladder)
+    # Geometric: every step multiplies by the same factor.
+    steps = [b / a for a, b in zip(ladder, ladder[1:], strict=False)]
+    assert max(steps) == pytest.approx(min(steps))
+
+
+def test_the_first_ask_and_anything_before_it_carry_the_first_rate():
+    params = Params.model_validate(params_payload())
+    assert params.intervention.backfire(0) == pytest.approx(0.006)
+    assert params.intervention.backfire(1) == pytest.approx(0.006)

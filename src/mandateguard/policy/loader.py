@@ -67,6 +67,45 @@ class RecoveryParams(BaseModel):
         return self
 
 
+class InterventionParams(BaseModel):
+    """What an ask does to a mandate. Every field here is swept except the last.
+
+    The validator enforces the one thing that is not a matter of taste: backfire has to
+    grow with contact count. A configuration where the twelfth ask is *safer* than the
+    first would quietly delete the entire reason this project rations asks, and every
+    result would then say "contact everyone" -- correctly, for that world.
+    """
+
+    uplift_scale: float = Field(ge=0)
+    backfire_first_ask: float = Field(ge=0, le=1)
+    backfire_twelfth_ask: float = Field(ge=0, le=1)
+    natural_revocation_share: float = Field(ge=0, le=1)
+
+    @model_validator(mode="after")
+    def check_backfire_grows(self) -> InterventionParams:
+        if self.backfire_twelfth_ask < self.backfire_first_ask:
+            raise ValueError(
+                f"intervention.backfire_twelfth_ask ({self.backfire_twelfth_ask}) is "
+                f"below backfire_first_ask ({self.backfire_first_ask}). Backfire that "
+                "shrinks with repetition removes the reason to ration asks at all, and "
+                "every arm in the ladder would then correctly recommend spraying. See "
+                "docs/problem.md 5.1."
+            )
+        return self
+
+    def backfire(self, ask_number: int) -> float:
+        """`b(n)` for the nth ask this customer has received, 1-indexed.
+
+        Geometric rather than linear between the two anchors, because the anchors are
+        given as a ratio (0.6% to 6% is "ten times worse", not "5.4 points worse") and a
+        linear ladder would put the growth in the wrong place.
+        """
+        if ask_number <= 1 or self.backfire_first_ask == 0:
+            return self.backfire_first_ask
+        ratio = self.backfire_twelfth_ask / self.backfire_first_ask
+        return min(1.0, self.backfire_first_ask * ratio ** ((ask_number - 1) / 11))
+
+
 class HorizonParams(BaseModel):
     weeks: int = Field(gt=0)
     budget_inr_per_week: float = Field(ge=0)
@@ -108,6 +147,7 @@ class Params(BaseModel):
     channels: list[Channel]
     value: ValueParams
     recovery: RecoveryParams
+    intervention: InterventionParams
     horizon: HorizonParams
     india: IndiaParams
     seed: int

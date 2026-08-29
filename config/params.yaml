@@ -50,6 +50,38 @@ recovery:
   # (0, 1) it was before T1.2.
   swept_ceiling_after_revocation: 0.29
 
+# T2.1 -- what an ask actually does. NONE of these are measured; no public dataset
+# contains them (docs/problem.md 8, gap 3), and docs/calibration.md 4 lists them as swept.
+# T2.8's sensitivity grid exists precisely because a point estimate here would be an
+# invention carrying the whole result.
+intervention:
+  # Uplift. An ask does not convert a fixed share of everyone contacted -- it saves a
+  # share of the deaths that would otherwise have happened, so it multiplies the hazard:
+  #
+  #     h_asked = h * (1 - uplift_scale * efficacy_prior[channel])
+  #
+  # Reading efficacy_prior as an absolute conversion rate instead would let an ask
+  # "save" a mandate that was never going to die this week, which is how a simulator
+  # ends up reporting a 40% lift. Adyen's ~6% contextual-bandit result is the sanity
+  # check (docs/limitations.md); anything near 40% is a red flag, not a finding.
+  uplift_scale: 1.0
+
+  # Backfire compounds with contact COUNT, not with the calendar: the second message is
+  # more irritating than the first regardless of which week it lands in. Geometric
+  # interpolation between these two, so the nth ask carries
+  #     b(n) = first * (twelfth / first) ^ ((n - 1) / 11)
+  # The illustrative 0.6% -> 6% ladder is from docs/problem.md 5.1, which also notes
+  # what it implies: contacting the whole book every week for 12 weeks causes roughly
+  # 30% cumulative attrition by itself, while the SMS spend is still only ~18,000.
+  backfire_first_ask: 0.006
+  backfire_twelfth_ask: 0.06
+
+  # Share of *natural* (un-asked) deaths that are revocations rather than lapses.
+  # MEASURED, not swept: 478,962 revocations against 277,495 lapses in the person-period
+  # frame (docs/mapping.md 5.6). A death caused by an ask is always a revocation, by
+  # definition -- that is what backfire means.
+  natural_revocation_share: 0.634
+
 horizon:
   weeks: 12
   budget_inr_per_week: 500.0

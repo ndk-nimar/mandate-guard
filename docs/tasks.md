@@ -212,27 +212,35 @@ Goal: the evaluation harness and four baselines, **before** building your own op
 Building baselines first is deliberate: it stops you from tuning the harness to flatter
 your own policy.
 
-- [ ] **T2.1 — Eval harness.** For each week over a 12-week horizon, hand the policy the
+- [x] **T2.1 — Eval harness.** For each week over a 12-week horizon, hand the policy the
   live mandate book and that week's budget, collect decisions, roll the world forward using
   the hazard model plus the intervention-effect parameters.
   **Done when:** the harness runs `NoAskPolicy` end-to-end and returns a metrics dict.
+  **Done:** `eval/forecast.py` rolls each live mandate's features forward and scores them
+  with T1.7's own SQL expression; `eval/world.py` runs the week loop. Deterministic
+  expectations rather than Monte Carlo (ADR 0003, and T2.7 needs a smooth curve). 1,354
+  live mandates on the sample; P0 retains 89.758%.
 
-- [ ] **T2.2 — Metrics module.** Mandates retained · revocations caused · INR ARR retained
+- [x] **T2.2 — Metrics module.** Mandates retained · revocations caused · INR ARR retained
   · asks spent · INR per ask · shadow price theta (null until P4).
   **Done when:** all six are computed and unit-tested on a hand-built 3-mandate fixture.
+  **Done:** `RunMetrics` in `eval/world.py`, 20 tests in `tests/test_world.py` on a
+  3-mandate 2-week fixture where every number is checkable on paper (retained = 0.25 +
+  0.81 + 1.0). `INR/ask` is self-contained — net value created per ask, not a difference
+  against P0 — so an arm can be scored without running another one first.
 
-- [ ] **T2.3 — P0 `NoAsk`.** The floor. Without it, "how much did we save" means nothing.
+- [x] **T2.3 — P0 `NoAsk`.** The floor. Without it, "how much did we save" means nothing.
   **Done when:** the harness reports it.
 
-- [ ] **T2.4 — P1 `ChronologicalCap`.** First-come until budget B. This is the real
+- [x] **T2.4 — P1 `ChronologicalCap`.** First-come until budget B. This is the real
   industry default (Braze, MoEngage, CleverTap).
   **Done when:** the harness reports it.
 
-- [ ] **T2.5 — P2 `RoundRobin`.** Same budget, fair rotation. This is the arm that made
+- [x] **T2.5 — P2 `RoundRobin`.** Same budget, fair rotation. This is the arm that made
   ARMMAN's result credible. **Never cut this arm.**
   **Done when:** the harness reports it.
 
-- [ ] **T2.6 — P3 `GreedyEV`.** Top-B by expected value. The honest simple baseline — and
+- [x] **T2.6 — P3 `GreedyEV`.** Top-B by expected value. The honest simple baseline — and
   what many "smart" systems actually are.
   **Done when:** the harness reports it.
 

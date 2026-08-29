@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 
 from mandateguard.data.mandates import build, format_report
-from mandateguard.data.paths import processed_dir, source_dir
+from mandateguard.data.paths import frame_dir, source_dir
 
 
 def main() -> int:
@@ -35,11 +35,12 @@ def main() -> int:
     args = parser.parse_args()
 
     interim = source_dir(args.sample)
+    out_dir = frame_dir(args.sample)
     print(f"Reading from : {interim}")
-    print(f"Writing to   : {'(nothing -- dry run)' if args.dry_run else processed_dir()}")
+    print(f"Writing to   : {'(nothing -- dry run)' if args.dry_run else out_dir}")
     print()
 
-    print(format_report(build(interim=interim, write=not args.dry_run)))
+    print(format_report(build(interim=interim, out_dir=out_dir, write=not args.dry_run)))
     return 0
 
 

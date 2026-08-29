@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from mandateguard.models import AllocationResponse, Decision, DecisionKind, Mandate
+from mandateguard.models import AllocationResponse, Decision, DecisionKind, MandateWeek
 
 
 class Policy(ABC):
@@ -19,11 +19,16 @@ class Policy(ABC):
     arm: str = "P?"
 
     @abstractmethod
-    def allocate(self, mandates: list[Mandate], budget_inr: float, week: int) -> AllocationResponse:
+    def allocate(self, book: list[MandateWeek], budget_inr: float, week: int) -> AllocationResponse:
         """Return a decision for *every* mandate -- asked and not-asked alike.
 
         Returning only the asked ones would make the refusal ledger impossible, so the
-        contract is total: len(response.decisions) == len(mandates).
+        contract is total: `len(response.decisions) == len(book)`.
+
+        The argument is `MandateWeek`, not `Mandate`. T0.7 wrote this interface before
+        there was a hazard model, and a policy that cannot see `h[i,t]` cannot rank
+        anything -- `GreedyEV` would be reduced to sorting by `L`. The richer view is
+        what the harness has and what the API layer will compute per request.
         """
 
 
@@ -36,7 +41,7 @@ class NoAskPolicy(Policy):
 
     arm = "P0"
 
-    def allocate(self, mandates: list[Mandate], budget_inr: float, week: int) -> AllocationResponse:
+    def allocate(self, book: list[MandateWeek], budget_inr: float, week: int) -> AllocationResponse:
         return AllocationResponse(
             decisions=[
                 Decision(
@@ -46,7 +51,7 @@ class NoAskPolicy(Policy):
                     value_inr=0.0,
                     reason="P0 floor policy: never contacts anyone.",
                 )
-                for m in mandates
+                for m in book
             ],
             theta_inr=None,
             budget_spent_inr=0.0,

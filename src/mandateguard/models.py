@@ -134,6 +134,49 @@ class Mandate(BaseModel):
         )
 
 
+class MandateWeek(BaseModel):
+    """What a policy is shown about one mandate in one week of the horizon.
+
+    A policy cannot decide anything useful from a `Mandate` alone: it needs this week's
+    hazard, and it needs to know how much of this mandate is still there. So the harness
+    hands it this view instead, and `Policy.allocate` takes a list of these rather than a
+    list of mandates.
+
+    `alive` is the honest cost of a deterministic simulation. In production a mandate is
+    alive or it is not; here it carries the probability it survived to this week, and the
+    harness scales every outcome by it. A policy is free to use it -- `GreedyEV` does --
+    or to ignore it, which is exactly the failure mode `ChronologicalCap` exists to
+    represent: real first-come-first-served systems do spend contacts on customers who
+    are already gone.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    mandate_id: str
+    week: int = Field(ge=0)
+    hazard: float = Field(ge=0, le=1, description="h[i,t] if nobody is contacted")
+    alive: float = Field(ge=0, le=1, description="P(still live at the start of this week)")
+    ltv_remaining_inr: float = Field(ge=0)
+    reachability_value_inr: float = Field(ge=0)
+    recovery_after_lapse: float = Field(ge=0, le=1)
+    recovery_after_revocation: float = Field(ge=0, le=1)
+    asks_so_far: int = Field(ge=0, description="how many asks this customer has already had")
+    weeks_since_last_ask: int | None = Field(
+        default=None, description="d[i,t] in weeks; None if never contacted"
+    )
+
+    def loss_on_lapse(self) -> float:
+        """L * (1 - q) -- what a quiet ending costs."""
+        return self.ltv_remaining_inr * (1.0 - self.recovery_after_lapse)
+
+    def loss_on_revocation(self, alpha: float = 1.0) -> float:
+        """L * (1 - r) + alpha * R -- strictly worse, by construction (problem.md 6.2)."""
+        return (
+            self.ltv_remaining_inr * (1.0 - self.recovery_after_revocation)
+            + alpha * self.reachability_value_inr
+        )
+
+
 class Decision(BaseModel):
     """What the allocator decided for one mandate in one week.
 
