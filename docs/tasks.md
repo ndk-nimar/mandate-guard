@@ -126,11 +126,15 @@ Goal: a lapse-hazard model fit on real subscriber data that beats a naive baseli
   needs.
   **Done when:** a test asserts no subscriber has post-event rows.
 
-- [ ] **T1.5 — Build the CI sample.** Deterministically sample ~5,000 subscribers into
+- [x] **T1.5 — Build the CI sample.** Deterministically sample ~5,000 subscribers into
   `data/sample/` (a few MB) and **commit it**. CI cannot download the full dataset; every
   later `results.md` regeneration runs on this sample.
   **Done when:** committed, and the full-data and sample paths share one code path behind a
   `--sample` flag.
+  **Done:** `docs/mapping.md` §4; 5,079 subscribers, 0.77 MB, all four tables. `--sample`
+  swaps a directory in `paths.source_dir()` and nothing downstream branches on it. The
+  sample reproduces the full book's shape (retention 59.6% vs 58.9%, `q` 0.387 vs 0.407)
+  and enters every branch the pipeline has (§4.3).
 
 - [ ] **T1.6 — Naive baseline.** "Risk equals closeness to expiry." Score it first, so the
   real model has something to beat.

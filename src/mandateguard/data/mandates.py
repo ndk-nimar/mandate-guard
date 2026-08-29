@@ -48,6 +48,20 @@ HASH_BUCKETS = 100_000
 within ~0.1% of the configured one at this book size, without a real RNG -- an RNG would
 need its state threaded through every caller to stay reproducible."""
 
+RAIL_SALT = "rail"
+"""Salt mixed into the id before hashing, so this hash is independent of every other
+hash of the same key.
+
+Learned the hard way. `sample.py` also selects subscribers by hashing `msno`, and with
+both using a bare `hash(msno)` the two were perfectly correlated: the sample kept exactly
+the subscribers in the lowest hash buckets, and those are precisely the buckets the rail
+ladder assigns to its first rail. The CI sample came out 100% UPI AutoPay while the full
+book came out at the configured mix, and nothing failed -- every per-rail number computed
+in CI would have been silently degenerate.
+
+Two hashes of one key are not two independent draws. Anything hashing `msno` for a new
+purpose needs its own salt."""
+
 MAX_PLAUSIBLE_CYCLE_DAYS = 400
 """An expiry span longer than this is not a billing cycle, so it is not usable to impute
 one. A 410-day plan does exist in the data, which is why this is a bound on *imputation*
@@ -302,7 +316,8 @@ def build(
                 m.city, m.registered_via, m.gender,
                 CASE WHEN m.bd BETWEEN {low_age} AND {high_age} THEN m.bd END AS age_years,
                 m.msno IS NOT NULL                                  AS member_record_found
-            FROM (SELECT *, (hash(msno) % {HASH_BUCKETS}) / {HASH_BUCKETS}.0 AS bucket
+            FROM (SELECT *, (hash(msno || '{RAIL_SALT}') % {HASH_BUCKETS})
+                             / {HASH_BUCKETS}.0                     AS bucket
                   FROM priced) p
             LEFT JOIN '{members}' m USING (msno)
             """

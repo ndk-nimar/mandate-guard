@@ -4,7 +4,9 @@ How the KKBox WSDM 2018 competition data becomes the mandate portfolio this syst
 reasons about. Sections 1 and 2 are measurements (T1.1, T1.2): the data is asked a
 question and answers it. Section 3 is different in kind (T1.3) -- it is a chain of
 *decisions* about data that cannot answer, so each one carries its alternative and the
-cost of being wrong. The output is `data/processed/mandates.parquet`.
+cost of being wrong. The output is `data/processed/mandates.parquet`. Section 4 (T1.5) is
+about reproducibility rather than about the data: it is the committed slice CI regenerates
+all of this from without the download.
 
 Source: `kkbox-churn-prediction-challenge`. Fetched with `scripts/fetch_data.py`
 (four files, ~1 GB; `user_logs*` is deliberately not downloaded -- this system models
@@ -523,3 +525,146 @@ out of the parquet reconstructs a valid `models.Mandate` without needing the con
 * **The snapshot is a single point in time.** Every mandate is described as of
   2017-02-28. T1.4's person-period expansion is what gives this a time dimension; until
   then nothing here supports a statement about *when* a mandate dies.
+
+---
+
+## 4. The committed CI sample (T1.5) -- done
+
+`scripts/build_sample.py` cuts `data/sample/` out of `data/interim/`. Sections 1 to 3 run
+on ~1 GB of parquet that lives outside the repository; GitHub Actions is never going to
+fetch that. So every number this project regenerates in CI comes from a **0.77 MB** slice
+that is committed and small enough to read in a diff.
+
+### 4.1 What the sample is
+
+**5,079 subscribers** drawn from 2,363,626 (target 5,000; hash buckets do not divide
+evenly, so the realised count lands near the target and not on it -- the report states
+what it actually was rather than rounding the claim).
+
+| table | rows | subscribers | size | share of source |
+|---|---:|---:|---:|---:|
+| `transactions` | 47,128 | 5,079 | 449 KB | 0.219% |
+| `transactions_v2` | 2,906 | 2,423 | 98 KB | 0.203% |
+| `members` | 4,142 | 4,142 | 156 KB | 0.061% |
+| `labels` | 2,085 | 2,085 | 70 KB | 0.215% |
+
+`members` is 0.061% of source rather than ~0.2% because it is one row per subscriber
+across the *whole* service, while the sampled subscribers are drawn from those who
+transacted. The share is smaller; the subscriber set is the same.
+
+### 4.2 Three decisions, each with a cost
+
+**The unit is the subscriber, not the row.** Taking the first N rows, or a random N% of
+rows, would hand back subscribers holding three of their nine transactions -- and a
+mandate with a partial history is not a smaller mandate, it is a corrupted one. Its
+coverage timeline gains a hole that never existed, so it lapses in the frame and did not
+lapse in life, and 2.4's `q` would be measured against fiction. Every row of every
+sampled subscriber comes along. The cost is that sample size is not controllable to the
+row: a subscriber with 40 transactions arrives with all 40.
+
+**Membership is a salted hash of the id, not a random draw.** Hashing `msno` with a salt
+is a property of the key, so the sample is stable without an RNG whose state would have
+to be threaded through every caller to stay reproducible. Re-running the script on the
+same download reproduces the same 5,079 subscribers, byte for byte. The cost is that the
+realised count cannot be pinned to exactly 5,000.
+
+**The draw is uniform, and deliberately not stratified.** Topping the sample up with
+subscribers carrying rare sentinels would exercise more code paths -- at the cost of
+making every rate computed on the sample wrong in a way nobody could see, because a
+stratified sample looks exactly like a uniform one from downstream. The sample stays
+uniform; 4.3 states which rare cases it happened to catch, and any branch it misses is
+covered by hand-built fixtures in `tests/` instead. **A sample is for reproducing the
+pipeline, not for re-deriving the population.**
+
+### 4.3 Which branches CI actually enters
+
+A sample that silently lacks a case is worse than one that lacks it loudly: the CI run
+stays green and nobody learns the branch was never executed. Each probe names a branch
+the pipeline actually has, so a zero here reads as "CI never enters that branch" rather
+than as a curiosity about the data.
+
+| case the pipeline handles | why it matters | rows in the sample |
+|---|---|---:|
+| cancellations (`is_cancel`) | the active-death rate `r` (2.3) | 1,901 |
+| one-off purchases (`is_auto_renew = 0`) | the auto-renew filter, which drops 41% of the book (3.7) | 6,448 |
+| zero-day plans (`payment_plan_days = 0`) | the debit-frequency imputation chain (3.5) | 1,865 |
+| free rows (`actual_amount_paid = 0`) | the amount fallback to list price and typical payment (3.5) | 2,546 |
+| epoch expiry (1970-01-01) | the missing-coverage-end filter (2.7, 3.7) | 3 |
+| far-future expiry (past 2018-12-31, `transactions_v2`) | the implausible-cycle bound on imputation (3.5) | 48 |
+| subscribers with no `members` row | the LEFT join that keeps a quarter of the book alive (3.7) | 937 |
+| implausible `bd` (age) | the age-nulling rule (3.6) | 2,102 |
+
+At this size every branch is entered. The epoch-expiry row is 3 rows out of 47,128 and is
+the one to watch: it is the probe most likely to come back empty if the target is ever
+lowered, and if it does, the correct response is to say so in this table, not to top the
+sample up.
+
+The far-future probe deliberately runs against `transactions_v2`. Section 2.7 measured
+that those expiries live *only* in that table, so probing `transactions` for them would
+report a confident zero and blame the sample for a property of the source.
+
+### 4.4 Does the sample behave like the book?
+
+Not the same numbers -- the same *shape*. The sample is uniform over subscribers, so
+rates should land near the full run's, and a sample that drifted far from them would be a
+sample of something else.
+
+| quantity | full run | sample | section |
+|---|---:|---:|---|
+| retention into the mandate book | 58.9% | 59.6% | 3.7 |
+| `upi_autopay` share | 0.550 | 0.549 | 3.3 |
+| `card` share | 0.250 | 0.249 | 3.3 |
+| `enach` share | 0.150 | 0.145 | 3.3 |
+| `ppi` share | 0.050 | 0.058 | 3.3 |
+| `q` at 84 days | 0.407 | 0.387 | 2.4 |
+| `r` ceiling at 84 days (strict) | 0.293 | 0.294 | 2.3 |
+| member record matched | 74.3% | 74.2% | 3.7 |
+
+`q` is the widest gap, at two points. That is the expected direction of noise on 3,205
+eligible lapses against 1,568,023, and it is why **the sample is where CI proves the
+pipeline runs, not where this project's calibration constants come from.** `q` and `r` in
+`config/params.yaml` are the full-run numbers, sourced in 2.6. Nothing reads them from the
+sample.
+
+### 4.5 One code path, not two
+
+`--sample` swaps a directory and nothing downstream branches on it:
+
+```
+uv run python scripts/build_mandates.py --sample
+uv run python scripts/analyse_cancel.py --sample
+```
+
+`data/sample/` holds the same four file names as `data/interim/`, so `source_dir(sample)`
+in `paths.py` is the entire difference between a full run and a CI run. A second code path
+would be free to drift, and the point of the sample is that CI exercises the code the full
+run exercises. Only the *input* moves -- output still goes to the gitignored
+`processed_dir()`, because a derived frame committed next to the sample would go stale the
+first time the code changed and nobody would notice.
+
+### 4.6 The bug this section exists to remember
+
+Both the sampler and the rail assignment (3.3) hash `msno`. When both used a bare
+unsalted hash they were not two independent draws -- they were the same draw twice. The
+sampler kept exactly the subscribers in the lowest hash buckets, and those are precisely
+the buckets the rail ladder hands to its first rail. The full book came out at the
+configured mix; **the CI sample came out 100% UPI AutoPay**, and nothing failed. Every
+per-rail number CI produced would have been silently degenerate.
+
+The fix is a distinct salt per purpose (`SAMPLE_SALT`, `RAIL_SALT`), and two tests hold
+it: one asserts the salts differ, one builds a mandate book from a sample and demands more
+than one rail. Anything that hashes `msno` for a new purpose needs its own salt.
+
+### 4.7 Known limits of the sample
+
+* **It is 0.2% of the book.** Any rate computed on it carries roughly 20x the standard
+  error of the full-run figure. It is for reproducing the pipeline, not for publishing
+  numbers.
+* **It is uniform, so rare branches are thin.** Three epoch-expiry rows is coverage, not
+  confidence; the branch is entered, but it is not stressed.
+* **It inherits every limit of 2.8 and 3.9**, because it is the same data. Nothing about
+  being small makes it less of a proxy for an Indian mandate book.
+* **It is committed, so it is history.** Changing `TARGET_SUBSCRIBERS` rewrites the data
+  every committed result was computed on. That constant deliberately lives in code rather
+  than in `config/params.yaml`: a sweep-able parameter invites a tweak, and this one should
+  always arrive as a reviewed diff.

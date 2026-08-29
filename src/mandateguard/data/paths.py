@@ -49,6 +49,22 @@ def sample_dir() -> Path:
     return REPO_DATA / "sample"
 
 
+def source_dir(sample: bool = False) -> Path:
+    """Where the pipeline reads its typed parquet from: the full tables, or the sample.
+
+    T1.5 requires that the full-data and sample runs share one code path. This function
+    is that requirement made physical -- `--sample` swaps a directory here and nothing
+    downstream branches on it, because `data/sample/` holds the same file names as
+    `data/interim/`. A second code path would be free to drift, and the whole point of
+    the sample is that CI exercises the code the full run exercises.
+
+    Only the *input* moves. Output still goes to `processed_dir()`, which is gitignored:
+    a derived frame committed next to the sample would go stale the first time the code
+    changed and nobody would notice.
+    """
+    return sample_dir() if sample else interim_dir()
+
+
 def ensure(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path

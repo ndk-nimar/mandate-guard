@@ -1,6 +1,7 @@
 """T1.2 entry point: measure what `is_cancel` means, print it as markdown.
 
     uv run python scripts/analyse_cancel.py
+    uv run python scripts/analyse_cancel.py --sample
 
 Runs over `data/interim/transactions.parquet` and, for the sentinel counts only, also
 over `transactions_v2.parquet` -- the two tables are never merged here, because merging
@@ -21,7 +22,7 @@ from mandateguard.data.cancel import (
     format_lapse_report,
     format_report,
 )
-from mandateguard.data.paths import interim_dir
+from mandateguard.data.paths import source_dir
 
 
 def main() -> int:
@@ -38,9 +39,14 @@ def main() -> int:
         default=RENEWAL_TOLERANCE_DAYS,
         help="a transaction this soon after coverage ends is a late renewal, not a lapse",
     )
+    parser.add_argument(
+        "--sample",
+        action="store_true",
+        help="read the committed 5k-subscriber sample instead of the full tables",
+    )
     args = parser.parse_args()
 
-    interim = interim_dir()
+    interim = source_dir(args.sample)
     print(f"Reading from : {interim}")
     print()
 
