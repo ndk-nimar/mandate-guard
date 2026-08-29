@@ -341,10 +341,21 @@ by making the decision variable `(mandate, channel, week)`.
   own arithmetic called profitable and the harness scored them at a loss. Both fixed;
   there is now one definition of what an ask does, shared by the simulator and every arm.
 
-- [ ] **T3.3 — P4 `MCKP` batch solver.** Multiple-Choice Knapsack: per mandate choose **at
+- [x] **T3.3 — P4 `MCKP` batch solver.** Multiple-Choice Knapsack: per mandate choose **at
   most one** channel, each with its own cost and efficacy. PuLP + CBC. **Depends on T0.3.**
   **Done when:** the solver returns a feasible within-budget allocation on a 100-mandate
   fixture.
+  **Done:** `allocator/mckp.py`, 17 tests. Feasibility is checked as three separate
+  claims — every mandate gets a decision, none is contacted twice in a week, spend stays
+  inside the budget. **theta is real**: positive when the budget binds, zero when it does
+  not, and it predicts what another rupee actually buys (spike S1's assertion, on the
+  hundred-mandate fixture rather than the five-mandate toy).
+  Two things fell out. The first draft put *gross* profit in the objective and P4 bought
+  258 asks for a **negative** net value — a pair can be gross-positive and net-negative,
+  and a gross objective cannot tell. And with a zero-cost channel configured, **no mandate
+  is ever refused for lack of budget**: anything worth contacting can be contacted free,
+  so the budget rations *which channel*, not *whether*. That is `problem.md` §5.1's thesis
+  falling out of the solver rather than being asserted at it.
 
 - [ ] **T3.4 — `allocator/theta_search.py` — Pinterest's theta.** Hill-climb plus binary
   search on the shadow price so total asks match the global budget. This is the *algorithm*

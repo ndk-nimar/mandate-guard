@@ -21,6 +21,7 @@ import duckdb
 
 from mandateguard.allocator.base import NoAskPolicy
 from mandateguard.allocator.baselines import ChronologicalCap, GreedyEV, RoundRobin, bulk_channel
+from mandateguard.allocator.mckp import MCKPPolicy
 from mandateguard.data import mandates, periods
 from mandateguard.data.cancel import RENEWAL_TOLERANCE_DAYS
 from mandateguard.data.paths import ROOT, frame_dir, sample_dir, spill_dir
@@ -41,7 +42,7 @@ def _ladder_reading(ladder: list[world.RunMetrics]) -> list[str]:
     channel prior moved P3 across the frontier. Claims that depend on the numbers have to
     be computed from the numbers.
     """
-    floor, queue, rotation, greedy = ladder
+    floor, queue, rotation, greedy, knapsack = ladder
     lines = [
         "```",
         "cost of one ask  = backfire(1) x channel softness x loss_on_revocation",
@@ -66,6 +67,7 @@ def _ladder_reading(ladder: list[world.RunMetrics]) -> list[str]:
             "Selection here is not a large win; it is the difference between a small gain",
             "and a large loss.",
         ]
+    lines += _knapsack_reading(greedy, knapsack)
     lines += [
         "",
         "The large number in this table is on the other side. `P1` and `P2`, spending a",
@@ -80,6 +82,63 @@ def _ladder_reading(ladder: list[world.RunMetrics]) -> list[str]:
         "not bind -- both contact everyone every week, so there is nothing for a rotation",
         "to rotate. They separate as soon as the budget does bind, which is §3.",
     ]
+    return lines
+
+
+def _knapsack_reading(greedy: world.RunMetrics, knapsack: world.RunMetrics) -> list[str]:
+    """What P4 bought that P3 could not -- derived, because the sign is not guaranteed.
+
+    P3 and P4 share one value function by design, so the only thing separating them is
+    allocation: P4 chooses a *channel* per mandate and solves the week under a shared
+    budget. If that turns out to be worth nothing on this book, the document has to say
+    so; a results file that can only report a win is not reporting.
+    """
+    delta = knapsack.profit_inr - greedy.profit_inr
+    theta = f"INR {knapsack.theta_inr:,.4f}" if knapsack.theta_inr is not None else "not computed"
+    lines = [
+        "",
+        "**`P4` is the first arm that is ours**, and it differs from `P3` in exactly two",
+        "ways: it picks a channel per mandate rather than using one for everybody, and it",
+        "solves the whole week under the shared budget instead of taking the top-B of a",
+        "sort. They price asks identically -- same `value/` module, same coefficients -- so",
+        "the gap between them is allocation and nothing else.",
+        "",
+    ]
+    if delta > 0:
+        lines += [
+            f"It is worth INR {delta:,.0f} more than `P3` here, on",
+            f"{knapsack.asks_spent:,} asks against {greedy.asks_spent:,}.",
+        ]
+    elif delta < 0:
+        lines += [
+            f"On this book it is worth INR {-delta:,.0f} **less** than `P3`, which is a",
+            "result and not a bug: when the budget never binds and one channel dominates",
+            "the value ranking, an exact solver has nothing to add over a sort.",
+        ]
+    else:
+        lines += [
+            "On this book the two land in the same place, which is what should happen when",
+            "the budget does not bind: with nothing to ration, choosing well and sorting",
+            "well are the same act.",
+        ]
+    lines += [
+        "",
+        f"**theta = {theta}** per rupee of weekly ask budget. This is the number the whole",
+        "project exists to produce -- *every extra rupee of budget returns theta rupees of",
+        "value, net of that rupee* -- and it comes from the LP relaxation's dual on the",
+        "budget constraint, not from a heuristic (ADR 0002).",
+    ]
+    if knapsack.theta_inr == 0.0:
+        lines += [
+            "",
+            "Zero is a real price, not a missing one: at this budget the constraint is",
+            "slack, so the next rupee buys nothing. It is also a consequence of the free",
+            "channel -- `in_app` costs nothing, so anything worth contacting can be",
+            "contacted without touching the budget at all. **No mandate here is refused for",
+            'lack of money**; every refusal is "not worth asking". The budget rations',
+            "*which channel*, not *whether* -- which is `problem.md` §5.1 falling out of the",
+            "solver rather than being asserted at it.",
+        ]
     return lines
 
 
@@ -142,7 +201,13 @@ def main() -> int:
 
     channel = bulk_channel(params.channels)
     saturation = channel.cost_inr * len(live)
-    arms = [NoAskPolicy(), ChronologicalCap(params), RoundRobin(params), GreedyEV(params)]
+    arms = [
+        NoAskPolicy(),
+        ChronologicalCap(params),
+        RoundRobin(params),
+        GreedyEV(params),
+        MCKPPolicy(params),
+    ]
     ladder = [world.run(live, arm, params, saturation) for arm in arms]
 
     budgets = sweep.budget_ladder(channel.cost_inr, len(live))
@@ -216,6 +281,8 @@ def main() -> int:
             "the campaign-tool default. |",
             "| `P2` | the same budget, rotated fairly. |",
             "| `P3` | top-B by expected rupee value, pricing backfire. |",
+            "| **`P4`** | **ours** -- multiple-choice knapsack over (mandate, channel), "
+            "solved under the shared budget, with the LP dual as theta. |",
             "",
             *_ladder_reading(ladder),
             "",

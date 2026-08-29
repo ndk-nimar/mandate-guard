@@ -20,6 +20,7 @@ import duckdb
 
 from mandateguard.allocator.base import NoAskPolicy
 from mandateguard.allocator.baselines import ChronologicalCap, GreedyEV, RoundRobin, bulk_channel
+from mandateguard.allocator.mckp import MCKPPolicy
 from mandateguard.data.cancel import RENEWAL_TOLERANCE_DAYS
 from mandateguard.data.paths import frame_dir, spill_dir
 from mandateguard.eval import forecast, world
@@ -79,7 +80,13 @@ def main() -> int:
         con.close()
 
     for budget in budgets:
-        arms = [NoAskPolicy(), ChronologicalCap(params), RoundRobin(params), GreedyEV(params)]
+        arms = [
+            NoAskPolicy(),
+            ChronologicalCap(params),
+            RoundRobin(params),
+            GreedyEV(params),
+            MCKPPolicy(params),
+        ]
         results = [world.run(book, arm, params, budget) for arm in arms]
         slots = int(budget // channel.cost_inr)
         print(f"### Budget INR {budget:,.2f} per week ({slots:,} asks)")

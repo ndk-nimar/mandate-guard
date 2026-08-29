@@ -13,9 +13,16 @@ reference -- optimum at 7 contacts, 10 costs 16% of profit, 4 costs 32% -- so th
 should come out *asymmetric*, with under-asking the more expensive mistake.
 
 **T2.8 -- the sensitivity grid.** The `(uplift x backfire)` plane, with the region where
-selection beats rotation drawn on it rather than asserted. Until Phase 3 exists the
-challenger is P3 `GreedyEV`; the reference is P2 `RoundRobin`, which is the arm that makes
-the comparison mean anything.
+selection beats rotation drawn on it rather than asserted. The reference is P2
+`RoundRobin`, which is the arm that makes the comparison mean anything.
+
+The challenger is **P3, not P4**, and that is a deliberate trade rather than an oversight.
+The grid varies *parameters* and asks "when does asking pay at all" -- a question about the
+value function, which P3 and P4 share exactly. What P4 adds is *allocation*, and the ladder
+and the budget curve are where that is measured. Running P4 here means 432 integer programs
+to redraw the same frontier: it took eleven minutes before the slack-budget shortcut and
+seven and a half after, on a document CI regenerates on every push. P4's contribution is
+reported where it is actually visible.
 
 Neither of these tunes a parameter. They map where the answer changes, which is the only
 honest thing to do with a number that was never measured.
@@ -31,6 +38,7 @@ from pydantic import BaseModel
 
 from mandateguard.allocator.base import NoAskPolicy, Policy
 from mandateguard.allocator.baselines import ChronologicalCap, GreedyEV, RoundRobin
+from mandateguard.allocator.mckp import MCKPPolicy
 from mandateguard.data.paths import ensure
 from mandateguard.eval.world import BookMandate, RunMetrics, run
 from mandateguard.policy.loader import Params
@@ -43,10 +51,23 @@ none -- while every arm that reads a parameter takes `Params`, so a sweep that v
 parameters has to rebuild its arms at every point rather than reuse one instance. Typing
 the slot as a factory says that out loud instead of leaving it to a comment."""
 
+
+def _mckp_without_theta(params: Params) -> Policy:
+    """P4 for a sweep: the allocation, without paying for the dual.
+
+    A sweep runs this arm dozens of times to answer a question about *parameters*, and
+    theta is a per-run headline nobody reads off a heatmap cell. Solving 400 LP
+    relaxations to print none of them is straightforward waste; the ladder keeps theta on,
+    because that is where it is published.
+    """
+    return MCKPPolicy(params, with_theta=False)
+
+
 ARMS: dict[str, PolicyFactory] = {
     "P1": ChronologicalCap,
     "P2": RoundRobin,
     "P3": GreedyEV,
+    "P4": _mckp_without_theta,
 }
 """The arms a sweep varies. P0 is handled separately -- it takes no constructor argument
 and its curve is a flat line by definition, which is exactly what makes it the floor."""

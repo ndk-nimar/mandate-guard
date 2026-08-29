@@ -71,6 +71,7 @@ week, so the budget does not bind and each arm asks as much as it wants to.
 | P1 | 1,131.9 | 83.595% | 90.6 | 384,906 | 16,236 | -18.61 | -302,204 | -- |
 | P2 | 1,132.0 | 83.604% | 90.4 | 384,953 | 16,236 | -18.61 | -302,089 | -- |
 | P3 | 1,215.4 | 89.765% | 0.1 | 413,262 | 49 | 0.30 | 14 | -- |
+| P4 | 1,215.9 | 89.801% | 0.3 | 413,470 | 109 | 0.74 | 81 | 0.00 |
 
 | arm | what it does |
 |---|---|
@@ -78,6 +79,7 @@ week, so the budget does not bind and each arm asks as much as it wants to.
 | `P1` | first-come, first-served until the budget runs out -- the campaign-tool default. |
 | `P2` | the same budget, rotated fairly. |
 | `P3` | top-B by expected rupee value, pricing backfire. |
+| **`P4`** | **ours** -- multiple-choice knapsack over (mandate, channel), solved under the shared budget, with the LP dual as theta. |
 
 ```
 cost of one ask  = backfire(1) x channel softness x loss_on_revocation
@@ -91,6 +93,28 @@ per ask. It is barely worth doing: the gain is
 0.010% of the book.
 Selection here is not a large win; it is the difference between a small gain
 and a large loss.
+
+**`P4` is the first arm that is ours**, and it differs from `P3` in exactly two
+ways: it picks a channel per mandate rather than using one for everybody, and it
+solves the whole week under the shared budget instead of taking the top-B of a
+sort. They price asks identically -- same `value/` module, same coefficients -- so
+the gap between them is allocation and nothing else.
+
+It is worth INR 171 more than `P3` here, on
+109 asks against 49.
+
+**theta = INR 0.0000** per rupee of weekly ask budget. This is the number the whole
+project exists to produce -- *every extra rupee of budget returns theta rupees of
+value, net of that rupee* -- and it comes from the LP relaxation's dual on the
+budget constraint, not from a heuristic (ADR 0002).
+
+Zero is a real price, not a missing one: at this budget the constraint is
+slack, so the next rupee buys nothing. It is also a consequence of the free
+channel -- `in_app` costs nothing, so anything worth contacting can be
+contacted without touching the budget at all. **No mandate here is refused for
+lack of money**; every refusal is "not worth asking". The budget rations
+*which channel*, not *whether* -- which is `problem.md` §5.1 falling out of the
+solver rather than being asserted at it.
 
 The large number in this table is on the other side. `P1` and `P2`, spending a
 budget that never binds, destroy
@@ -116,37 +140,38 @@ Profit is ARR retained less what was spent retaining it.
 | P1 | INR 0.00 | 0 | INR 413,219 | INR 0 | -- | -- |
 | P2 | INR 0.00 | 0 | INR 413,219 | INR 0 | -- | -- |
 | P3 | INR 0.61 | 49 | INR 413,260 | INR 41 | 5.6% | 0.8% |
+| P4 | INR 12.59 | 109 | INR 413,432 | INR 188 | 4.5% | 0.9% |
 
-| budget | P0 | P1 | P2 | P3 |
-|---:|---:|---:|---:|---:|
-| 0.00 | 413,219 | 413,219 | 413,219 | 413,219 |
-| 0.44 | 413,219 | 413,044 | 413,177 | 413,258 |
-| 0.61 | 413,219 | 412,942 | 413,156 | 413,260 |
-| 0.85 | 413,219 | 412,835 | 413,127 | 413,260 |
-| 1.19 | 413,219 | 412,707 | 413,096 | 413,260 |
-| 1.67 | 413,219 | 412,502 | 413,045 | 413,260 |
-| 2.34 | 413,219 | 412,239 | 412,975 | 413,260 |
-| 3.28 | 413,219 | 411,812 | 412,880 | 413,260 |
-| 4.59 | 413,219 | 411,249 | 412,745 | 413,260 |
-| 6.42 | 413,219 | 410,413 | 412,545 | 413,260 |
-| 8.99 | 413,219 | 409,283 | 412,220 | 413,260 |
-| 12.59 | 413,219 | 407,743 | 411,698 | 413,260 |
-| 17.62 | 413,219 | 405,606 | 410,881 | 413,260 |
-| 24.67 | 413,219 | 402,628 | 409,355 | 413,260 |
-| 34.54 | 413,219 | 398,341 | 406,512 | 413,260 |
-| 48.36 | 413,219 | 392,407 | 400,182 | 413,260 |
-| 67.70 | 413,219 | 384,094 | 384,141 | 413,260 |
+| budget | P0 | P1 | P2 | P3 | P4 |
+|---:|---:|---:|---:|---:|---:|
+| 0.00 | 413,219 | 413,219 | 413,219 | 413,219 | 413,244 |
+| 0.44 | 413,219 | 413,044 | 413,177 | 413,258 | 413,283 |
+| 0.61 | 413,219 | 412,942 | 413,156 | 413,260 | 413,294 |
+| 0.85 | 413,219 | 412,835 | 413,127 | 413,260 | 413,315 |
+| 1.19 | 413,219 | 412,707 | 413,096 | 413,260 | 413,329 |
+| 1.67 | 413,219 | 412,502 | 413,045 | 413,260 | 413,351 |
+| 2.34 | 413,219 | 412,239 | 412,975 | 413,260 | 413,375 |
+| 3.28 | 413,219 | 411,812 | 412,880 | 413,260 | 413,402 |
+| 4.59 | 413,219 | 411,249 | 412,745 | 413,260 | 413,412 |
+| 6.42 | 413,219 | 410,413 | 412,545 | 413,260 | 413,424 |
+| 8.99 | 413,219 | 409,283 | 412,220 | 413,260 | 413,428 |
+| 12.59 | 413,219 | 407,743 | 411,698 | 413,260 | 413,432 |
+| 17.62 | 413,219 | 405,606 | 410,881 | 413,260 | 413,430 |
+| 24.67 | 413,219 | 402,628 | 409,355 | 413,260 | 413,430 |
+| 34.54 | 413,219 | 398,341 | 406,512 | 413,260 | 413,430 |
+| 48.36 | 413,219 | 392,407 | 400,182 | 413,260 | 413,430 |
+| 67.70 | 413,219 | 384,094 | 384,141 | 413,260 | 413,430 |
 
-**`P3` has an interior optimum at INR 0.61 per
-week** -- 49 asks over the horizon, worth
-INR 41 more than doing nothing. Every other arm's
+**`P4` has an interior optimum at INR 12.59 per
+week** -- 109 asks over the horizon, worth
+INR 188 more than doing nothing. Every other arm's
 optimum is still zero: they have no way to decline an ask, so more budget can
 only hurt them.
 
 The curve is **asymmetric in the direction Zhang predicted**. Halving the optimum
-budget costs 5.6% of the gain; doubling it costs 0.8%. Under-asking
+budget costs 4.5% of the gain; doubling it costs 0.9%. Under-asking
 is the more expensive mistake here by a factor of about
-7x -- Zhang's calibration puts it at roughly 2x, so the shape
+5x -- Zhang's calibration puts it at roughly 2x, so the shape
 agrees and the magnitude does not, which is what a different book and a different
 set of swept parameters should be expected to produce.
 
