@@ -82,6 +82,11 @@ TX_ROWS = [
     # that took effect.
     "same_day,41,30,129,129,1,20161220,20170120,0",
     "same_day,41,30,129,129,1,20161220,20170220,0",
+    # tied_cancel: two rows on the same day granting the *same* coverage, one a cancel
+    # and one not. Expiry cannot separate them, so this is the row pair that used to be
+    # resolved by whatever order the scan happened to produce.
+    "tied_cancel,41,30,129,129,1,20161220,20170120,0",
+    "tied_cancel,36,30,129,129,1,20161220,20170120,1",
 ]
 
 MEMBERS_HEADER = "msno,city,bd,gender,registered_via,registration_init_time"
@@ -100,6 +105,7 @@ MEMBERS_ROWS = [
     "span_cycle,1,30,male,7,20150101",
     "default_cycle,1,30,male,7,20150101",
     "same_day,1,30,male,7,20150101",
+    "tied_cancel,1,30,male,7,20150101",
     # `future_only_row` is deliberately absent: a missing demographic row must not
     # delete a mandate that the transaction log says exists.
 ]
@@ -170,8 +176,8 @@ def test_the_filter_chain_is_reported_step_by_step(report):
     """docs/mapping.md 1 promised that whichever join T1.4 uses would be stated with its
     surviving row count. The counts have to come out of the code that does the
     filtering, or they drift from it the first time a filter changes."""
-    assert [step.subscribers for step in report.steps] == [14, 13, 12, 11, 11]
-    assert report.mandates == 11
+    assert [step.subscribers for step in report.steps] == [15, 14, 13, 12, 12]
+    assert report.mandates == 12
 
 
 def test_a_one_off_purchase_is_not_a_mandate(rows):
@@ -399,7 +405,7 @@ def test_implausible_ages_become_null_rather_than_deleting_the_subscriber(report
     for bad in ("expired", "cancelled", "renewed_after_cancel"):
         assert bad in rows.index
         assert pd.isna(rows.loc[bad, "age_years"])
-    assert report.age_known == 7
+    assert report.age_known == 8
 
 
 def test_the_plausible_range_is_inclusive_at_both_ends(params, rows):
@@ -432,7 +438,7 @@ def test_nothing_is_written_when_writing_is_off(params, interim, tmp_path):
     actually be dry, or the gate is decorative."""
     out = tmp_path / "dry"
     report = build(params=params, interim=interim, out_dir=out, write=False)
-    assert report.mandates == 11
+    assert report.mandates == 12
     assert not out.exists()
 
 
@@ -447,3 +453,33 @@ def test_an_all_upi_mix_refuses_rather_than_quietly_breaking_the_afa_rule(
     )
     with pytest.raises(ValueError, match="no rail to fall back to"):
         build(params=all_upi, interim=interim, out_dir=tmp_path / "upi")
+
+
+# --------------------------------------------------------------------------------
+# Determinism. The bug this section exists to keep fixed.
+# --------------------------------------------------------------------------------
+
+
+def test_a_same_day_tie_resolves_to_the_cancel(rows):
+    """`tied_cancel` has two rows on one day granting identical coverage, one a cancel
+    and one not. Expiry cannot separate them, so before `SAME_DAY_TIE_BREAK` the winner
+    was whichever row the scan reached first -- and the book came out `cancelled: 1,053`
+    on one run and `1,054` on the next with nothing changed.
+
+    Cancel wins. Not because the data says so -- it does not -- but because the
+    ambiguity has to resolve *against* this project's headline rather than for it.
+    """
+    assert rows.loc["tied_cancel", "status"] == "cancelled"
+
+
+def test_the_same_input_writes_the_same_bytes(params, interim, tmp_path):
+    """GATE 2 asks a stranger's fork for a byte-identical `results.md`. That is a claim
+    about the file, so this test is about the file: two builds of one input, compared as
+    bytes. Counts agreeing is not enough -- unordered output writes different files from
+    the same rows, and every hash downstream would then differ for no reason."""
+    written = []
+    for run in ("a", "b", "c"):
+        out = tmp_path / run
+        build(params=params, interim=interim, out_dir=out)
+        written.append((out / "mandates.parquet").read_bytes())
+    assert written[0] == written[1] == written[2]

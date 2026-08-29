@@ -117,14 +117,20 @@ Goal: a lapse-hazard model fit on real subscriber data that beats a naive baseli
   / e-NACH); NTD → INR; `payment_plan_days` → debit frequency; `membership_expire_date` →
   mandate validity. Every mapping decision defended in prose, not just in code.
   **Done when:** `docs/mapping.md` is complete and `data/processed/mandates.parquet` exists.
-  **Done:** `docs/mapping.md` §3; 1,391,931 mandates (58.9% of subscribers), 105.0 MB.
+  **Done:** `docs/mapping.md` §3; 1,392,175 mandates (58.9% of subscribers), 104.5 MB.
   Rail, mandate validity and `R` are synthetic overlays and labelled as such in §3.1;
   `transactions_v2` stays out and is held back as out-of-time validation (§3.2).
 
-- [ ] **T1.4 — Person-period expansion.** Convert each subscriber into one row per week
+- [x] **T1.4 — Person-period expansion.** Convert each subscriber into one row per week
   alive, with `event=1` on the lapse week. This is the shape a discrete-time survival model
   needs.
   **Done when:** a test asserts no subscriber has post-event rows.
+  **Done:** `docs/mapping.md` §5; 58,079,041 person-weeks over 1,379,341 spells, 183.3 MB.
+  Per-week death rate 0.0130, and the baseline hazard is **not** flat -- weeks 4-7 run at
+  0.0740, 4.5x the average, which is the first renewal of a 30-day plan (§5.7). Features
+  are recomputed as-of each week rather than copied from the snapshot book; the leakage
+  barrier has its own test. Deaths carry `lapse`/`revocation` so `q` and `r` stay
+  separable.
 
 - [x] **T1.5 — Build the CI sample.** Deterministically sample ~5,000 subscribers into
   `data/sample/` (a few MB) and **commit it**. CI cannot download the full dataset; every

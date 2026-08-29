@@ -43,6 +43,20 @@ class MandateStatus(StrEnum):
     CANCELLED = "cancelled"  # revoked by the customer; harder to recover
 
 
+class DeathKind(StrEnum):
+    """How a mandate's spell ended, in the person-period frame (T1.4).
+
+    `MandateStatus` describes a mandate's state at a point in time; this describes the
+    *event* that ended a spell of coverage, which is what a survival model predicts.
+    They are kept apart deliberately: a mandate can be `EXPIRED` at the snapshot for a
+    death that happened eighteen months earlier, and the two prices in
+    `docs/problem.md` 6.2 attach to the event, not to the state.
+    """
+
+    LAPSE = "lapse"  # coverage simply ran out -- recovers with probability q
+    REVOCATION = "revocation"  # cancelled first -- recovers with probability r, r < q
+
+
 class DecisionKind(StrEnum):
     ASKED = "asked"
     NOT_ASKED = "not_asked"

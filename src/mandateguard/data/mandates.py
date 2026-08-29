@@ -68,6 +68,32 @@ one. A 410-day plan does exist in the data, which is why this is a bound on *imp
 only: a stated `payment_plan_days` of 410 is still used as-is, and one mandate in the
 built book has exactly that cycle."""
 
+SAME_DAY_TIE_BREAK = (
+    "membership_expire_date DESC NULLS LAST, is_cancel DESC, is_auto_renew DESC, "
+    "actual_amount_paid DESC, plan_list_price DESC, payment_plan_days DESC, "
+    "payment_method_id DESC"
+)
+"""How to choose between two transactions written on the same day. A **total** order.
+
+A mandate's state is whatever its most recent transaction says, and 7 subscribers in the
+5,000-subscriber CI sample -- about 0.14%, so roughly 2,000 of the full book -- have two
+transactions on their last day. `ORDER BY membership_expire_date DESC` alone leaves those
+tied, and a tied `row_number()` is resolved by whatever order DuckDB's parallel scan
+happened to produce. The observable effect: the same input built `cancelled: 1,053` on
+one run and `cancelled: 1,054` on the next, with nothing changed. T2.9 asks that a
+stranger's fork regenerate `results.md` byte for byte, and a coin-flip in the book makes
+that impossible -- quietly, because both runs look fine.
+
+Every column the book later reads off this row is therefore in the sort, so two rows that
+still tie are identical rows and the choice between them cannot matter.
+
+The first tie-break carries a decision rather than just breaking a tie. Of two
+same-day rows granting the same coverage, one a cancel and one not, `is_cancel DESC`
+takes the cancel. Which one "really" happened is not recoverable from the data, so the
+rule is chosen for its direction: treating an ambiguous customer as cancelled
+under-states retention, and this system exists to claim retention. A rule that resolves
+ambiguity in favour of its own headline is not a rule, it is a thumb on the scale."""
+
 
 class FilterStep(BaseModel):
     """One narrowing of the subscriber population, with its survivors.
@@ -146,6 +172,212 @@ def _rail_assignment_sql(india: IndiaParams) -> str:
     )
 
 
+def build_book(
+    con: duckdb.DuckDBPyConnection,
+    params: Params | None = None,
+    interim: Path | None = None,
+) -> list[FilterStep]:
+    """Leave a `book` temp table on `con`, and return the filter chain that produced it.
+
+    Split out of `build()` so that T1.4's person-period expansion can stand on exactly
+    this population rather than re-deriving it. Two definitions of "who is in the book"
+    would be two populations the moment either one changed, and every downstream number
+    would then be computed over a set nobody could name.
+
+    The connection is the caller's on purpose: `periods.py` needs the `tx` view and the
+    `book` table alive in the same session so it can join them without a round trip
+    through parquet.
+    """
+    params = params or load_params()
+    india = params.india
+    interim = interim or interim_dir()
+
+    transactions = (interim / "transactions.parquet").as_posix()
+    members = (interim / "members.parquet").as_posix()
+    snapshot = india.snapshot_date
+    low_age, high_age = india.plausible_age_years
+    horizon_days = params.horizon.weeks * 7
+
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP VIEW tx AS
+        SELECT * FROM '{transactions}'
+        WHERE transaction_date IS NOT NULL AND transaction_date <= DATE '{snapshot}'
+        """
+    )
+    steps = [
+        FilterStep(
+            step="subscribers in `transactions`",
+            why="every msno with at least one dated transaction at or before the snapshot",
+            subscribers=_count(con, "SELECT count(DISTINCT msno) FROM tx"),
+        )
+    ]
+
+    # Per-subscriber aggregates first: the modal cycle length and the typical paid
+    # amount both need the subscriber's whole history, not just their latest row.
+    #
+    # `modal_cycle` is spelled out rather than written `mode(payment_plan_days)` because
+    # `mode` has no defined answer when two values are equally common, and an undefined
+    # answer is a coin flip -- the same failure `SAME_DAY_TIE_BREAK` exists to prevent.
+    # A tie takes the *longer* cycle, which is the choice that shrinks the imputed
+    # `ltv_remaining_inr` rather than inflating it.
+    con.execute(
+        """
+        CREATE OR REPLACE TEMP TABLE history AS
+        WITH totals AS (
+            SELECT msno,
+                   min(transaction_date)                                 AS first_seen,
+                   count(*)                                              AS transactions,
+                   sum(actual_amount_paid)                               AS lifetime_paid,
+                   median(actual_amount_paid) FILTER (WHERE actual_amount_paid > 0)
+                                                                         AS typical_paid
+            FROM tx GROUP BY msno
+        ),
+        modal AS (
+            SELECT msno, payment_plan_days AS modal_cycle FROM (
+                SELECT msno, payment_plan_days,
+                       row_number() OVER (PARTITION BY msno
+                                          ORDER BY count(*) DESC, payment_plan_days DESC)
+                                                                         AS rn
+                FROM tx WHERE payment_plan_days > 0 GROUP BY msno, payment_plan_days
+            ) WHERE rn = 1
+        )
+        SELECT t.*, m.modal_cycle FROM totals t LEFT JOIN modal m USING (msno)
+        """
+    )
+
+    # The mandate's current state is whatever its most recent transaction says. Ties on
+    # the same day are broken by `SAME_DAY_TIE_BREAK`, which is total -- see its
+    # docstring for the coin flip this replaced.
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP TABLE latest AS
+        SELECT * EXCLUDE (rn) FROM (
+            SELECT *, row_number() OVER (
+                PARTITION BY msno
+                ORDER BY transaction_date DESC, {SAME_DAY_TIE_BREAK}
+            ) AS rn
+            FROM tx
+        ) WHERE rn = 1
+        """
+    )
+
+    con.execute(
+        """
+        CREATE OR REPLACE TEMP TABLE standing AS
+        SELECT l.*, h.first_seen, h.transactions, h.lifetime_paid,
+               h.modal_cycle, h.typical_paid
+        FROM latest l JOIN history h USING (msno)
+        WHERE l.is_auto_renew
+        """
+    )
+    steps.append(
+        FilterStep(
+            step="on an auto-renewing instrument",
+            why="a standing authorisation, not a one-off purchase or a free trial",
+            subscribers=_count(con, "SELECT count(*) FROM standing"),
+        )
+    )
+
+    # Amount: the latest paid amount, falling back to the list price, then to the
+    # subscriber's own typical payment. A mandate with no amount at all is not a
+    # mandate -- Mandate.amount_inr requires gt=0 and a zero would be a fiction.
+    amount = (
+        f"round(coalesce(nullif(actual_amount_paid, 0), nullif(plan_list_price, 0), "
+        f"typical_paid) * {india.ntd_to_inr}, 2)"
+    )
+    # Cycle: the stated plan length, else the subscriber's modal plan length, else
+    # the observed expiry span, else the global mode. See docs/mapping.md 3.5.
+    span = "date_diff('day', transaction_date, membership_expire_date)"
+    cycle = (
+        f"coalesce(nullif(payment_plan_days, 0), modal_cycle, "
+        f"CASE WHEN {span} BETWEEN 1 AND {MAX_PLAUSIBLE_CYCLE_DAYS} THEN {span} END, "
+        f"{india.default_debit_frequency_days})"
+    )
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP TABLE priced AS
+        SELECT *, {amount} AS amount_inr, {cycle} AS debit_frequency_days,
+               payment_plan_days = 0 OR payment_plan_days IS NULL AS frequency_imputed
+        FROM standing
+        """
+    )
+    con.execute("CREATE OR REPLACE TEMP TABLE priced AS SELECT * FROM priced WHERE amount_inr > 0")
+    steps.append(
+        FilterStep(
+            step="with a recoverable debit amount",
+            why="paid amount, else list price, else the subscriber's typical payment",
+            subscribers=_count(con, "SELECT count(*) FROM priced"),
+        )
+    )
+
+    con.execute(
+        "CREATE OR REPLACE TEMP TABLE priced AS SELECT * FROM priced "
+        "WHERE membership_expire_date IS NOT NULL "
+        "AND membership_expire_date <> DATE '1970-01-01'"
+    )
+    steps.append(
+        FilterStep(
+            step="with a real coverage end",
+            why="the 1970-01-01 epoch is a missing value, and a mandate needs a cycle end",
+            subscribers=_count(con, "SELECT count(*) FROM priced"),
+        )
+    )
+
+    status = f"""
+        CASE WHEN is_cancel THEN '{MandateStatus.CANCELLED.value}'
+             WHEN membership_expire_date < DATE '{snapshot}'
+                  THEN '{MandateStatus.EXPIRED.value}'
+             ELSE '{MandateStatus.ACTIVE.value}' END
+    """
+    # L: revenue still to come if the mandate survives the evaluation horizon.
+    # Deliberately horizon-bounded rather than a lifetime figure -- the harness only
+    # ever simulates `horizon.weeks`, so a lifetime L would price decisions against
+    # revenue the simulation never gets to observe.
+    ltv = f"round(amount_inr * ({horizon_days}.0 / debit_frequency_days), 2)"
+    con.execute(
+        f"""
+        CREATE OR REPLACE TEMP TABLE book AS
+        SELECT
+            p.msno                                              AS mandate_id,
+            p.msno                                              AS customer_id,
+            {_rail_assignment_sql(india)}                       AS method,
+            {status}                                            AS status,
+            p.amount_inr,
+            p.debit_frequency_days::INTEGER                     AS debit_frequency_days,
+            p.frequency_imputed,
+            p.membership_expire_date                            AS current_end,
+            p.membership_expire_date
+                + INTERVAL {india.mandate_validity_days} DAY    AS expire_by,
+            {ltv}                                               AS ltv_remaining_inr,
+            {params.recovery.after_lapse}                       AS recovery_after_lapse,
+            {params.recovery.after_revocation}                  AS recovery_after_revocation,
+            round({ltv} * {india.reachability_fraction_of_ltv}, 2)
+                                                                AS reachability_value_inr,
+            p.first_seen,
+            date_diff('day', p.first_seen, DATE '{snapshot}')   AS tenure_days,
+            p.transactions,
+            round(p.lifetime_paid * {india.ntd_to_inr}, 2)      AS lifetime_paid_inr,
+            p.payment_method_id                                 AS source_payment_method_id,
+            m.city, m.registered_via, m.gender,
+            CASE WHEN m.bd BETWEEN {low_age} AND {high_age} THEN m.bd END AS age_years,
+            m.msno IS NOT NULL                                  AS member_record_found
+        FROM (SELECT *, (hash(msno || '{RAIL_SALT}') % {HASH_BUCKETS})
+                         / {HASH_BUCKETS}.0                     AS bucket
+              FROM priced) p
+        LEFT JOIN '{members}' m USING (msno)
+        """
+    )
+    steps.append(
+        FilterStep(
+            step="final mandate book",
+            why="members joined LEFT -- a missing demographic row must not delete a mandate",
+            subscribers=_count(con, "SELECT count(*) FROM book"),
+        )
+    )
+    return steps
+
+
 def build(
     params: Params | None = None,
     interim: Path | None = None,
@@ -154,192 +386,25 @@ def build(
 ) -> MandateBookReport:
     """Build `mandates.parquet` and report exactly who survived to be in it."""
     params = params or load_params()
-    india = params.india
-    interim = interim or interim_dir()
     out_dir = out_dir or processed_dir()
-
-    transactions = (interim / "transactions.parquet").as_posix()
-    members = (interim / "members.parquet").as_posix()
-    snapshot = india.snapshot_date
-    low_age, high_age = india.plausible_age_years
-    horizon_days = params.horizon.weeks * 7
 
     con = duckdb.connect()
     try:
-        con.execute(
-            f"""
-            CREATE OR REPLACE TEMP VIEW tx AS
-            SELECT * FROM '{transactions}'
-            WHERE transaction_date IS NOT NULL AND transaction_date <= DATE '{snapshot}'
-            """
-        )
-        steps = [
-            FilterStep(
-                step="subscribers in `transactions`",
-                why="every msno with at least one dated transaction at or before the snapshot",
-                subscribers=_count(con, "SELECT count(DISTINCT msno) FROM tx"),
-            )
-        ]
-
-        # Per-subscriber aggregates first: the modal cycle length and the typical paid
-        # amount both need the subscriber's whole history, not just their latest row.
-        con.execute(
-            """
-            CREATE OR REPLACE TEMP TABLE history AS
-            SELECT msno,
-                   min(transaction_date)                                     AS first_seen,
-                   count(*)                                                  AS transactions,
-                   sum(actual_amount_paid)                                   AS lifetime_paid,
-                   mode(payment_plan_days) FILTER (WHERE payment_plan_days > 0)
-                                                                             AS modal_cycle,
-                   median(actual_amount_paid) FILTER (WHERE actual_amount_paid > 0)
-                                                                             AS typical_paid
-            FROM tx GROUP BY msno
-            """
-        )
-
-        # The mandate's current state is whatever its most recent transaction says.
-        # Ties on the same day are broken by the later expiry: of two rows written the
-        # same day, the one granting more coverage is the one that took effect.
-        con.execute(
-            """
-            CREATE OR REPLACE TEMP TABLE latest AS
-            SELECT * EXCLUDE (rn) FROM (
-                SELECT *, row_number() OVER (
-                    PARTITION BY msno
-                    ORDER BY transaction_date DESC, membership_expire_date DESC NULLS LAST
-                ) AS rn
-                FROM tx
-            ) WHERE rn = 1
-            """
-        )
-
-        con.execute(
-            """
-            CREATE OR REPLACE TEMP TABLE standing AS
-            SELECT l.*, h.first_seen, h.transactions, h.lifetime_paid,
-                   h.modal_cycle, h.typical_paid
-            FROM latest l JOIN history h USING (msno)
-            WHERE l.is_auto_renew
-            """
-        )
-        steps.append(
-            FilterStep(
-                step="on an auto-renewing instrument",
-                why="a standing authorisation, not a one-off purchase or a free trial",
-                subscribers=_count(con, "SELECT count(*) FROM standing"),
-            )
-        )
-
-        # Amount: the latest paid amount, falling back to the list price, then to the
-        # subscriber's own typical payment. A mandate with no amount at all is not a
-        # mandate -- Mandate.amount_inr requires gt=0 and a zero would be a fiction.
-        amount = (
-            f"round(coalesce(nullif(actual_amount_paid, 0), nullif(plan_list_price, 0), "
-            f"typical_paid) * {india.ntd_to_inr}, 2)"
-        )
-        # Cycle: the stated plan length, else the subscriber's modal plan length, else
-        # the observed expiry span, else the global mode. See docs/mapping.md 3.5.
-        span = "date_diff('day', transaction_date, membership_expire_date)"
-        cycle = (
-            f"coalesce(nullif(payment_plan_days, 0), modal_cycle, "
-            f"CASE WHEN {span} BETWEEN 1 AND {MAX_PLAUSIBLE_CYCLE_DAYS} THEN {span} END, "
-            f"{india.default_debit_frequency_days})"
-        )
-        con.execute(
-            f"""
-            CREATE OR REPLACE TEMP TABLE priced AS
-            SELECT *, {amount} AS amount_inr, {cycle} AS debit_frequency_days,
-                   payment_plan_days = 0 OR payment_plan_days IS NULL AS frequency_imputed
-            FROM standing
-            """
-        )
-        con.execute(
-            "CREATE OR REPLACE TEMP TABLE priced AS SELECT * FROM priced WHERE amount_inr > 0"
-        )
-        steps.append(
-            FilterStep(
-                step="with a recoverable debit amount",
-                why="paid amount, else list price, else the subscriber's typical payment",
-                subscribers=_count(con, "SELECT count(*) FROM priced"),
-            )
-        )
-
-        con.execute(
-            "CREATE OR REPLACE TEMP TABLE priced AS SELECT * FROM priced "
-            "WHERE membership_expire_date IS NOT NULL "
-            "AND membership_expire_date <> DATE '1970-01-01'"
-        )
-        steps.append(
-            FilterStep(
-                step="with a real coverage end",
-                why="the 1970-01-01 epoch is a missing value, and a mandate needs a cycle end",
-                subscribers=_count(con, "SELECT count(*) FROM priced"),
-            )
-        )
-
-        status = f"""
-            CASE WHEN is_cancel THEN '{MandateStatus.CANCELLED.value}'
-                 WHEN membership_expire_date < DATE '{snapshot}'
-                      THEN '{MandateStatus.EXPIRED.value}'
-                 ELSE '{MandateStatus.ACTIVE.value}' END
-        """
-        # L: revenue still to come if the mandate survives the evaluation horizon.
-        # Deliberately horizon-bounded rather than a lifetime figure -- the harness only
-        # ever simulates `horizon.weeks`, so a lifetime L would price decisions against
-        # revenue the simulation never gets to observe.
-        ltv = f"round(amount_inr * ({horizon_days}.0 / debit_frequency_days), 2)"
-        con.execute(
-            f"""
-            CREATE OR REPLACE TEMP TABLE book AS
-            SELECT
-                p.msno                                              AS mandate_id,
-                p.msno                                              AS customer_id,
-                {_rail_assignment_sql(india)}                       AS method,
-                {status}                                            AS status,
-                p.amount_inr,
-                p.debit_frequency_days::INTEGER                     AS debit_frequency_days,
-                p.frequency_imputed,
-                p.membership_expire_date                            AS current_end,
-                p.membership_expire_date
-                    + INTERVAL {india.mandate_validity_days} DAY    AS expire_by,
-                {ltv}                                               AS ltv_remaining_inr,
-                {params.recovery.after_lapse}                       AS recovery_after_lapse,
-                {params.recovery.after_revocation}                  AS recovery_after_revocation,
-                round({ltv} * {india.reachability_fraction_of_ltv}, 2)
-                                                                    AS reachability_value_inr,
-                p.first_seen,
-                date_diff('day', p.first_seen, DATE '{snapshot}')   AS tenure_days,
-                p.transactions,
-                round(p.lifetime_paid * {india.ntd_to_inr}, 2)      AS lifetime_paid_inr,
-                p.payment_method_id                                 AS source_payment_method_id,
-                m.city, m.registered_via, m.gender,
-                CASE WHEN m.bd BETWEEN {low_age} AND {high_age} THEN m.bd END AS age_years,
-                m.msno IS NOT NULL                                  AS member_record_found
-            FROM (SELECT *, (hash(msno || '{RAIL_SALT}') % {HASH_BUCKETS})
-                             / {HASH_BUCKETS}.0                     AS bucket
-                  FROM priced) p
-            LEFT JOIN '{members}' m USING (msno)
-            """
-        )
-        steps.append(
-            FilterStep(
-                step="final mandate book",
-                why="members joined LEFT -- a missing demographic row must not delete a mandate",
-                subscribers=_count(con, "SELECT count(*) FROM book"),
-            )
-        )
-
+        steps = build_book(con, params, interim)
         out_path = out_dir / "mandates.parquet"
         if write:
             ensure(out_dir)
+            # ORDER BY is not decoration. Without it the row order of the output is
+            # whatever the scan produced, so two runs over identical input write two
+            # different files -- and T2.9 asks a stranger's fork for a byte-identical
+            # regeneration, which is a claim about the file, not about the counts.
             con.execute(
-                f"COPY (SELECT * FROM book) TO '{out_path.as_posix()}' "
+                f"COPY (SELECT * FROM book ORDER BY mandate_id) TO '{out_path.as_posix()}' "
                 "(FORMAT PARQUET, COMPRESSION ZSTD)"
             )
 
         return MandateBookReport(
-            snapshot=snapshot,
+            snapshot=params.india.snapshot_date,
             steps=steps,
             mandates=_count(con, "SELECT count(*) FROM book"),
             by_status=_tally(con, "status"),
@@ -367,7 +432,12 @@ def _count(con: duckdb.DuckDBPyConnection, sql: str) -> int:
 
 
 def _tally(con: duckdb.DuckDBPyConnection, column: str) -> dict[str, int]:
-    rows = con.execute(f"SELECT {column}, count(*) FROM book GROUP BY 1 ORDER BY 2 DESC").fetchall()
+    # The name is a tie-break, not a preference: two statuses with equal counts would
+    # otherwise order differently between runs, and this dict becomes a table in
+    # docs/mapping.md that is supposed to regenerate identically.
+    rows = con.execute(
+        f"SELECT {column}, count(*) FROM book GROUP BY 1 ORDER BY 2 DESC, 1"
+    ).fetchall()
     return {str(name): int(n) for name, n in rows}
 
 

@@ -205,8 +205,21 @@ def build(
         for name in TABLES:
             src = (interim / f"{name}.parquet").as_posix()
             out = out_dir / f"{name}.parquet"
+            # `ORDER BY ALL` sorts on every column, which is a total order over the
+            # row's own content -- two rows that still tie are identical rows. Without
+            # it the SEMI JOIN emits the right rows in whatever order the scan produced,
+            # so re-running this script writes a different file from the same data and
+            # `git diff` shows four changed binaries for no reason. These are committed
+            # files; a spurious diff on them is a spurious diff in the history.
+            #
+            # The upstream `interim/*.parquet` is deliberately *not* sorted this way.
+            # It is gitignored and never reviewed, and sorting 21.5M rows there would
+            # cost minutes on every ingest to fix a diff nobody sees. Sorting here is
+            # enough: the sample's rows are chosen deterministically, so ordering them
+            # deterministically makes the file deterministic whatever order they arrive
+            # in.
             con.execute(
-                f"COPY (SELECT s.* FROM '{src}' s SEMI JOIN chosen USING (msno)) "
+                f"COPY (SELECT s.* FROM '{src}' s SEMI JOIN chosen USING (msno) ORDER BY ALL) "
                 f"TO '{out.as_posix()}' (FORMAT PARQUET, COMPRESSION ZSTD)"
             )
             rows, subs = con.execute(

@@ -236,3 +236,15 @@ def test_the_committed_sample_stays_small_enough_to_commit(committed):
     being a binary blob in the history."""
     total = sum(p.stat().st_size for p in committed.glob("*.parquet"))
     assert total < 5_000_000, f"data/sample/ is {total / 1e6:.1f} MB"
+
+
+def test_the_same_download_writes_the_same_sample_bytes(interim, tmp_path):
+    """`data/sample/` is committed, so it is history. Two runs over one download have to
+    write one file: without an ordered COPY the rows are correct and their order is not,
+    and every rebuild would show four changed binaries in the diff for no reason."""
+    written = []
+    for run in ("a", "b", "c"):
+        out = tmp_path / run
+        sample.build(interim=interim, out_dir=out, target=20)
+        written.append(sorted((p.name, p.read_bytes()) for p in out.glob("*.parquet")))
+    assert written[0] == written[1] == written[2]

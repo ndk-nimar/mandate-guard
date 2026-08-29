@@ -65,6 +65,21 @@ def source_dir(sample: bool = False) -> Path:
     return sample_dir() if sample else interim_dir()
 
 
+def spill_dir() -> Path:
+    """Where DuckDB may spill an intermediate that will not fit in RAM.
+
+    An in-memory DuckDB has nowhere to put a hash table larger than memory unless it is
+    told, and what happens instead is not an error: T1.4's full run built for seven
+    minutes and then died without writing a file or printing a message. Pointing
+    `temp_directory` here turns that silent death into a slow success.
+
+    It lives beside the other generated data, so on a machine with
+    `MANDATEGUARD_DATA_DIR` set it lands on that drive rather than filling the system
+    disk -- the 46M-row person-period frame can spill several GB while it sorts.
+    """
+    return data_root() / "tmp"
+
+
 def ensure(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path

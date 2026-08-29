@@ -6,7 +6,9 @@ question and answers it. Section 3 is different in kind (T1.3) -- it is a chain 
 *decisions* about data that cannot answer, so each one carries its alternative and the
 cost of being wrong. The output is `data/processed/mandates.parquet`. Section 4 (T1.5) is
 about reproducibility rather than about the data: it is the committed slice CI regenerates
-all of this from without the download.
+all of this from without the download. Section 5 (T1.4) reshapes the book into the
+person-period frame the hazard model is fit on, and its output is
+`data/processed/person_periods.parquet`.
 
 Source: `kkbox-churn-prediction-challenge`. Fetched with `scripts/fetch_data.py`
 (four files, ~1 GB; `user_logs*` is deliberately not downloaded -- this system models
@@ -396,7 +398,7 @@ fixture buys coverage to 2036, and a 19-year "billing cycle" would price that ma
 one debit every two decades. The bound applies to *imputation only* -- a genuinely stated
 410-day plan is used as stated, and exactly one mandate in the book has one.
 
-**Result: 5,672 of 1,391,931 mandates (0.4%) have an imputed cycle.** The 4% figure on
+**Result: 5,676 of 1,392,175 mandates (0.4%) have an imputed cycle.** The 4% figure on
 raw rows collapses to 0.4% on mandates because the zero-day rows cluster in histories
 that also contain stated plan lengths -- step 2 catches almost all of them. 1,378,359
 mandates (99.0%) are on a 30-day cycle.
@@ -432,7 +434,7 @@ structure into the age column, and any model using age would then be partly read
 signup channel through it. So the field is nulled and left out of feature sets;
 `registered_via` is kept as its own column, where what it is doing is visible.
 
-**Result: 431,627 of 1,391,931 mandates (31.0%) carry a usable age.** The bounds are
+**Result: 431,844 of 1,392,175 mandates (31.0%) carry a usable age.** The bounds are
 inclusive at both ends, which `tests/test_mandates.py` pins -- an off-by-one here would
 quietly discard the edges of the age distribution.
 
@@ -445,22 +447,22 @@ it:
 | step | why | subscribers |
 |---|---|---:|
 | subscribers in `transactions` | at least one dated transaction at or before the snapshot | 2,363,626 |
-| on an auto-renewing instrument | a standing authorisation, not a one-off purchase | 1,395,697 |
-| with a recoverable debit amount | paid, else list price, else the subscriber's typical payment | 1,392,039 |
-| with a real coverage end | 1970-01-01 is a missing value, and a mandate needs a cycle end | 1,391,931 |
-| final mandate book | `members` joined LEFT | 1,391,931 |
+| on an auto-renewing instrument | a standing authorisation, not a one-off purchase | 1,395,941 |
+| with a recoverable debit amount | paid, else list price, else the subscriber's typical payment | 1,392,283 |
+| with a real coverage end | 1970-01-01 is a missing value, and a mandate needs a cycle end | 1,392,175 |
+| final mandate book | `members` joined LEFT | 1,392,175 |
 
-**1,391,931 mandates -- 58.9% of the starting population, 105.0 MB.**
+**1,392,175 mandates -- 58.9% of the starting population, 104.5 MB.**
 
 Two things this table is saying that are easy to miss:
 
-**The auto-renew filter is the whole cost.** It removes 967,929 subscribers, 41% of the
+**The auto-renew filter is the whole cost.** It removes 967,685 subscribers, 41% of the
 population, and everything after it removes 3,766 more. This system is about standing
 authorisations, and a subscriber who only ever made one-off purchases has no mandate to
 protect -- so the filter is right. But it means the book is *not* representative of KKBox
 subscribers, and no result here transfers to the other 41% without an argument.
 
-**The `members` join is LEFT, and it matters more than expected.** 357,801 mandates
+**The `members` join is LEFT, and it matters more than expected.** 357,802 mandates
 (25.7%) have no `members` row at all. `members` is 6.77M rows and looked like a superset
 of the 2.36M transacting subscribers; it is not -- 432,623 transacting subscribers are
 missing from it. An INNER join would have quietly deleted a quarter of the book over
@@ -475,11 +477,33 @@ becoming a silent bias in every segment cut.
 every subscriber who cancelled once and renewed -- and section 2.3 counted 245,782 such
 recoveries at 84 days, so that is not a rare case.
 
+**"The latest transaction" is not always one transaction.** About 0.14% of subscribers
+have two rows written on their last day, and for some of those the two rows grant the
+same coverage while disagreeing about whether the mandate was cancelled. Ordering by
+expiry alone leaves them tied, and a tied sort is resolved by whatever order the scan
+produced -- so the same input built `cancelled: 1,053` on one run of the CI sample and
+`1,054` on the next, with nothing changed. That is a quiet failure of GATE 2, which asks
+a stranger's fork for a byte-identical regeneration.
+
+`mandates.SAME_DAY_TIE_BREAK` now orders on every column the book reads off that row, so
+two rows that still tie are identical rows. Its first term carries a decision rather than
+just breaking a tie: of a cancel and a non-cancel granting the same coverage, **the
+cancel wins**. Which one really happened is not recoverable, so the rule is chosen for
+its direction -- treating an ambiguous customer as cancelled under-states retention, and
+this system exists to claim retention. A rule that resolves ambiguity in favour of its
+own headline is not a rule. The same reasoning replaced `mode(payment_plan_days)` in the
+cycle fallback (3.5), which has no defined answer when two cycle lengths are equally
+common; a tie there takes the longer cycle, which shrinks the imputed `L` rather than
+inflating it.
+
+The fix moved the book by 244 mandates out of 1.39M, and the output is now written
+`ORDER BY mandate_id` -- unordered output writes different files from the same rows.
+
 | status | mandates |
 |---|---:|
-| `active` | 874,816 |
-| `cancelled` | 482,504 |
-| `expired` | 34,611 |
+| `active` | 874,679 |
+| `cancelled` | 484,516 |
+| `expired` | 32,980 |
 
 `expired` is small because KKBox usually ends coverage *at* cancellation (section 2.3):
 the passive-lapse population section 2.4 measured mostly appears here as `cancelled`, or
@@ -497,7 +521,7 @@ never precedes it.
 **L = `amount_inr x (horizon_days / debit_frequency_days)`**, horizon-bounded rather than
 lifetime. A lifetime L would price decisions against revenue the 12-week simulation never
 observes, and the optimiser would spend real budget chasing it. Median L is 417.20; total
-L at risk across the book is **INR 520,186,581**.
+L at risk across the book is **INR 520,284,400**.
 
 **R = `india.reachability_fraction_of_ltv` x L (0.15).** No public measurement exists for
 what an addressable channel to a customer is worth. Pinning R to L is the honest version
@@ -532,7 +556,7 @@ out of the parquet reconstructs a valid `models.Mandate` without needing the con
 
 `scripts/build_sample.py` cuts `data/sample/` out of `data/interim/`. Sections 1 to 3 run
 on ~1 GB of parquet that lives outside the repository; GitHub Actions is never going to
-fetch that. So every number this project regenerates in CI comes from a **0.77 MB** slice
+fetch that. So every number this project regenerates in CI comes from a **0.63 MB** slice
 that is committed and small enough to read in a diff.
 
 ### 4.1 What the sample is
@@ -543,9 +567,9 @@ what it actually was rather than rounding the claim).
 
 | table | rows | subscribers | size | share of source |
 |---|---:|---:|---:|---:|
-| `transactions` | 47,128 | 5,079 | 449 KB | 0.219% |
-| `transactions_v2` | 2,906 | 2,423 | 98 KB | 0.203% |
-| `members` | 4,142 | 4,142 | 156 KB | 0.061% |
+| `transactions` | 47,128 | 5,079 | 307 KB | 0.219% |
+| `transactions_v2` | 2,906 | 2,423 | 97 KB | 0.203% |
+| `members` | 4,142 | 4,142 | 155 KB | 0.061% |
 | `labels` | 2,085 | 2,085 | 70 KB | 0.215% |
 
 `members` is 0.061% of source rather than ~0.2% because it is one row per subscriber
@@ -567,6 +591,12 @@ is a property of the key, so the sample is stable without an RNG whose state wou
 to be threaded through every caller to stay reproducible. Re-running the script on the
 same download reproduces the same 5,079 subscribers, byte for byte. The cost is that the
 realised count cannot be pinned to exactly 5,000.
+
+The rows are also written `ORDER BY ALL`, which sorts on every column. Without it the
+sample holds the right rows in whatever order the scan produced, so every rebuild shows
+four changed binaries in `git diff` for no reason -- and these files are committed, so a
+spurious diff on them is a spurious diff in the history. Sorting turned out to shrink the
+sample by 18% as well (0.77 MB to 0.63 MB): sorted columns compress better.
 
 **The draw is uniform, and deliberately not stratified.** Topping the sample up with
 subscribers carrying rare sentinels would exercise more code paths -- at the cost of
@@ -619,6 +649,8 @@ sample of something else.
 | `q` at 84 days | 0.407 | 0.387 | 2.4 |
 | `r` ceiling at 84 days (strict) | 0.293 | 0.294 | 2.3 |
 | member record matched | 74.3% | 74.2% | 3.7 |
+| per-week death rate | 0.0130 | 0.0127 | 5.3 |
+| hazard, weeks 4-7 | 0.0740 | 0.0735 | 5.3 |
 
 `q` is the widest gap, at two points. That is the expected direction of noise on 3,205
 eligible lapses against 1,568,023, and it is why **the sample is where CI proves the
@@ -633,6 +665,7 @@ sample.
 ```
 uv run python scripts/build_mandates.py --sample
 uv run python scripts/analyse_cancel.py --sample
+uv run python scripts/build_periods.py --sample
 ```
 
 `data/sample/` holds the same four file names as `data/interim/`, so `source_dir(sample)`
@@ -668,3 +701,230 @@ than one rail. Anything that hashes `msno` for a new purpose needs its own salt.
   every committed result was computed on. That constant deliberately lives in code rather
   than in `config/params.yaml`: a sweep-able parameter invites a tweak, and this one should
   always arrive as a reviewed diff.
+
+---
+
+## 5. Person-period expansion (T1.4) -- done
+
+`scripts/build_periods.py` turns the one-row-per-mandate book of section 3 into
+`person_periods.parquet`: one row per subscriber per week they were still alive, with
+`event = 1` on the week they died. That is the shape a discrete-time survival model
+consumes, and fitting a logistic regression on it returns a per-week hazard directly --
+which is the quantity the allocator actually needs, because the allocator's question is
+"if I do nothing, what is the chance this mandate dies before my next budget arrives?"
+
+Why discrete-time rather than Cox: a Cox model returns a hazard *ratio* and leaves the
+baseline unspecified, but the allocator needs an absolute probability in [0,1] to
+multiply against rupees. The baseline is the part that matters most, and Cox is the model
+that declines to give it. The person-period trick turns survival into ordinary binary
+classification, so `week_index` becomes a covariate like any other and T1.8's calibration
+tools work unchanged.
+
+### 5.1 The one rule
+
+**Features may only use what was known at the start of the week. Labels may use the
+future.**
+
+That asymmetry is the whole discipline, and it is the reason this section is longer than
+the code deserves. A feature that peeks one week ahead makes a model look excellent in
+cross-validation and useless in production, and nothing crashes on the way there.
+
+So no column of the mandate book is copied down into the frame unless it is genuinely
+time-invariant. `amount_inr` and `debit_frequency_days` in `mandates.parquet` describe
+2017-02-28; using them for a week in March 2015 would be telling the model what plan the
+subscriber would eventually be on. They are recomputed as-of each week from the
+transaction log instead. Only the assigned rail and the demographic columns are carried
+across, because those do not move.
+
+The fallback chains of 3.5 are recomputed the same way. Where the book falls back to a
+subscriber's median payment and modal cycle over their *whole* history, the frame falls
+back to the last non-zero value seen **so far** -- the same idea with the future removed.
+
+### 5.2 Four decisions, each with a cost
+
+**One spell per subscriber, ending at their first death.** A subscriber who lapsed,
+recovered, and lapsed again contributes only the first spell. The cost is not small: on
+the CI sample there are 1.37 coverage gaps per gapped subscriber, so single-spell
+discards roughly a quarter of the death events. The reason is that a returning customer
+is a different population from a first-time one -- `q` says 41% of lapsed mandates
+self-heal, and the ones that come back have already demonstrated something the others
+have not. Pooling the two estimates a hazard for neither. The alternative, multiple
+spells with a spell index, is a genuine option and is left on the table for T1.7 if the
+first-spell fit turns out to be data-starved.
+
+**The week clock starts at the subscriber's first observed transaction.** `week_index` is
+then duration since origination, which is the covariate a survival model is built around.
+The cost is left truncation: the log opens on 2015-01-01, so a subscriber already
+subscribed on that date has a `week_index` counting weeks since *observation*, not since
+origination. They are flagged rather than dropped -- see 5.4.
+
+**A death is the first confirmed coverage gap,** reusing T1.2's definitions and its 7-day
+renewal tolerance, so `q` and the frame's labels cannot disagree about what a lapse is. A
+gap too close to the snapshot to confirm is censored, not counted -- confirming a death
+needs the full tolerance to elapse, and calling an unconfirmed gap a death would turn the
+end of the observation window into an event, which is the censoring mistake 2.3 refuses
+to make one layer up.
+
+**Censored spells contribute only whole weeks; a dying spell keeps its partial last
+week.** The asymmetry is deliberate. A subscriber observed for three days of a week was
+not at risk for that week, and counting it as a survived week biases the hazard down. A
+subscriber who died three days into a week did die in it. Treating the two the same
+biases the estimate in whichever direction was chosen by accident.
+
+### 5.3 The frame
+
+| column | kind | as of | notes |
+|---|---|---|---|
+| `mandate_id` | key | -- | the subscriber; one spell each |
+| `week_index` | duration | -- | 0-based weeks since `first_seen`; the baseline hazard |
+| `week_start` | date | -- | carried as a real date so the frame can be aligned to the harness's calendar weeks, not only to duration |
+| `event` | **label** | end of week | 1 on the death week |
+| `death_kind` | **label** | end of week | `lapse` or `revocation`; null unless `event` |
+| `tenure_days` | feature | week start | days since `first_seen` |
+| `days_to_coverage_end` | feature | week start | the whole of T1.6's naive baseline |
+| `days_since_last_txn` | feature | week start | any transaction, debit or cancel |
+| `amount_inr` | feature | week start | the 3.5 chain, with the future removed |
+| `debit_frequency_days` | feature | week start | ditto; `frequency_imputed` flags the fallback |
+| `auto_renew` | feature | week start | time-varying, and switching it off is a signal |
+| `discount_inr` | feature | week start | list price less amount actually paid |
+| `debits_so_far` | feature | week start | non-cancel transactions only -- a cancel is a transaction but it is not a debit |
+| `cancels_so_far` | feature | week start | |
+| `paid_so_far_inr` | feature | week start | |
+| `method` | feature | static | **assigned, not observed** (3.3) |
+| `city`, `registered_via`, `gender` | feature | static | from `members` |
+| `age_years` | feature | static | nulled outside [13, 90] (3.6); missing non-randomly |
+| `member_record_found` | feature | static | false for a quarter of the book (3.7) |
+| `account_age_days` | feature | week start | since `registration_init_time`; null without a members row |
+| `left_truncated` | flag | static | see 5.4 |
+
+### 5.4 Left truncation, made decidable
+
+A subscriber's first observed transaction is a genuine origination only if no earlier
+cycle existed. That is not directly observable -- but it is decidable one way. If the
+first transaction lands at least one billing cycle after the log opens, then a preceding
+cycle *would* have fallen inside the window and would have been seen; its absence is
+evidence. Closer than that and the two cases cannot be told apart.
+
+So `left_truncated` is `first_seen < data_start + debit_frequency_days`, which is a rule
+derived from the data rather than a date chosen by hand. Flagged rather than dropped:
+dropping them would discard the longest-tenured subscribers systematically, which is
+worse than a covariate that says "this one's clock may have started earlier".
+
+`account_age_days` is the separate, complementary column: `registration_init_time` says
+how long the *person* has been a customer, which is not the same fact as how long the
+*mandate* has been running. Both are in the frame, and neither is a substitute for the
+other.
+
+### 5.5 Expanded from the transaction side, not the week side
+
+Worth recording because the obvious implementation does not finish.
+
+The definition says: generate every week, and for each one look up the last transaction
+at or before its `week_start`. Written that way it is an ASOF join with 46M probes across
+1.4M partitions, and on the full book it ran for over twenty minutes without producing a
+file. Materialising the intermediate frames on top of that spilled 16 GB.
+
+Inverting it is much cheaper and gives the identical frame. A transaction's state holds
+from its own day until the next transaction, so each row of the per-day running state
+already *owns* a contiguous run of weeks -- every week whose `week_start` falls in
+`[day, next_day)`. Computing that run is arithmetic on two dates, and the expansion
+becomes an ordinary hash join followed by an `unnest`. The runs are contiguous and
+disjoint by construction (one row's last week is the next row's first, minus one), so
+every week of every spell appears exactly once; `tests/test_periods.py` asserts that
+directly rather than trusting the argument.
+
+The leakage barrier survives the inversion: a week is assigned the transaction whose
+interval contains its `week_start`, and that transaction happened at or before it.
+
+Two mechanical notes for anyone re-running this. DuckDB needs `temp_directory` set or an
+in-memory database has nowhere to spill -- the first full run died after seven minutes
+with no file and no error message. And the output is written `ORDER BY mandate_id,
+week_index`, because unordered output writes a different file from the same rows.
+
+### 5.6 What came out
+
+| step | why | subscribers |
+|---|---|---:|
+| final mandate book (3.7) | where section 3 left off | 1,392,175 |
+| with at least one observable week | a spell ending on or before its first transaction has no week to expand | 1,379,341 |
+
+**58,079,041 person-weeks** over 1,379,341 spells, 183.3 MB. Median spell 32 weeks, longest
+112 -- which is the whole log, so the longest spells are subscribers who never died.
+
+| quantity | value |
+|---|---:|
+| spells ending in a death | 756,457 (54.8%) |
+| spells censored at the snapshot | 622,884 |
+| gaps too close to the horizon to confirm -- censored, not counted | 6,846 |
+| spells whose mandate predates the log (`left_truncated`) | 334,048 |
+| per-week death rate | **0.0130** |
+
+| death | events |
+|---|---:|
+| `revocation` | 478,962 |
+| `lapse` | 277,495 |
+
+**Revocations outnumber lapses roughly two to one**, which inverts section 2.4's ratio
+(1.74M passive lapses against 854k cancel events) and is not a contradiction. Two filters
+do it. The book is the auto-renewing 59% of subscribers (3.7), and a cancellation is
+something only a live auto-renewing subscription can have. And this frame keeps each
+subscriber's *first* death only, while section 2 counts every gap -- and repeat gaps skew
+passive. The reading is that for a standing mandate, the first ending is more often a
+deliberate one. That matters for pricing, because `r < q`.
+
+The per-week rate of 0.0130 is the intercept a hazard model has to beat: a model that
+predicts 1.3% for everyone is already "right" 98.7% of the time, which is why T1.6 scores
+Brier and calibration rather than accuracy.
+
+### 5.7 The baseline hazard is not flat
+
+| duration | person-weeks | deaths | hazard |
+|---|---:|---:|---:|
+| weeks 0-3 | 5,339,657 | 87,066 | 0.0163 |
+| **weeks 4-7** | 4,156,924 | 307,511 | **0.0740** |
+| weeks 8-12 | 4,526,546 | 49,719 | 0.0110 |
+| weeks 13-25 | 10,531,425 | 67,472 | 0.0064 |
+| weeks 26-51 | 16,514,592 | 132,077 | 0.0080 |
+| weeks 52+ | 17,009,897 | 112,612 | 0.0066 |
+
+Death is concentrated at weeks 4 to 7 -- **4.5 times the average rate**, and 41% of all
+deaths in 7% of the person-weeks. That window is the first renewal of a 30-day plan, which
+is the modal cycle in this book. A mandate that survives its first renewal is roughly an
+order of magnitude safer per week than one approaching it.
+
+This is the readout the section was built to produce. A flat hazard would have meant
+`week_index` carried no signal and the survival framing had bought nothing over a plain
+cross-section; it is not flat, so it did. It also gives the allocator a shape to exploit
+that a static risk score cannot express: the same mandate is worth contacting at week 5
+and not at week 30.
+
+The CI sample reproduces the shape closely -- 0.0160 / 0.0735 / 0.0109 / 0.0057 / 0.0079 /
+0.0067 against the full run's column above, on 0.2% of the data. That is the strongest
+evidence so far that section 4's sample is a sample and not a different dataset.
+
+### 5.8 Cost, stated plainly
+
+The full expansion takes **89 minutes**, almost all of it in the final sort, and spills
+several GB. That is accepted rather than optimised away: it runs once per dataset, and CI
+never runs it -- the sample expands in **2.4 seconds**, which is what every committed
+number is regenerated from.
+
+58M rows is also more than a laptop can hand to `sklearn` as a dense float matrix. T1.7
+will fit on a subsample or in chunks, and that decision belongs to T1.7; the frame's job
+is to be the complete, honest shape, not to be small.
+
+### 5.9 Known limits of the frame
+
+* **Recurrent deaths are discarded** (5.2). Roughly a quarter of the coverage gaps in the
+  data belong to subscribers who had already had one, and none of them are here.
+* **The population is conditioned on the snapshot.** The book keeps subscribers whose
+  *latest* transaction was auto-renewing (3.7), which is a fact about 2017-02-28 applied
+  to a frame that starts in 2015. It does not condition on being alive -- dead mandates
+  are in the book -- but it does condition on the instrument.
+* **`week_index` is not always duration since origination** (5.4), and the flag marks
+  which rows.
+* **The rail is assigned** (3.3), so any per-rail hazard is a statement about this
+  project's overlay and not about KKBox.
+* **Nothing here is causal.** The frame supports "how likely is this mandate to die",
+  not "how much would an ask change that". The second question is what T3.9's
+  random-drop holdout is shaped for, and it is not answerable from this data at all.
