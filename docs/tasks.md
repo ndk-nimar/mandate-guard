@@ -154,18 +154,31 @@ Goal: a lapse-hazard model fit on real subscriber data that beats a naive baseli
   a period-agnostic lookup cannot track. §1.5 states the two specific bars T1.7 has to
   clear.
 
-- [ ] **T1.7 — Discrete-time survival model.** `sklearn` logistic regression on the
+- [x] **T1.7 — Discrete-time survival model.** `sklearn` logistic regression on the
   person-period frame, per-week hazard. Not Cox: simpler, calibrates better, easier to
   defend on a whiteboard.
   **Done when:** the model fits, predictions are in [0,1], and the seed is fixed.
+  **Done:** `docs/eval.md` §2. 56 features, fitted on a 1M-row deterministic subsample
+  (seed 20260905), scored as a SQL expression over all 6.35M held-out rows. Brier
+  **0.006817** (skill **+0.0621**), log loss **0.0369** — clears both bars §1.5 set.
+  A test asserts the SQL scoring path reproduces sklearn's `predict_proba` to 1e-9, and
+  another asserts the five excluded columns appear in no feature.
 
-- [ ] **T1.8 — Calibration, Brier, plots.** `calibration_curve`, `brier_score_loss`,
+- [x] **T1.8 — Calibration, Brier, plots.** `calibration_curve`, `brier_score_loss`,
   reliability diagram committed as a PNG.
   **Done when:** the plot is in `docs/img/` and the numbers are in `docs/eval.md`.
+  **Done:** `docs/img/reliability.png`, numbers in `docs/eval.md` §3. ECE **0.00363**
+  against the binned baseline's 0.00722. The honest finding: the predictions are too
+  spread out — the top bucket over-predicts by 1.6x, which biases the optimiser toward
+  asking. Recorded in the model card and `limitations.md` rather than smoothed over.
 
-- [ ] **T1.9 — `docs/model_card.md`.** Data, features, performance, limitations, intended
+- [x] **T1.9 — `docs/model_card.md`.** Data, features, performance, limitations, intended
   use. The cleanest AI-maturity signal available, and it is cheap.
   **Done when:** committed.
+  **Done:** seven sections, limitations ordered by how much they should worry a reader.
+  Names the two strongest features that are about *our own data* rather than about
+  customers (`frequency_imputed`, `member_known`) and says they would not survive a move
+  to a merchant's book.
 
 - [ ] **T1.10 — `docs/calibration.md`.** Every India-layer number mapped to its citation:
   UPI AutoPay 50M new mandates/month, 808M executions/month, 20M+ revocations/month, ~74%

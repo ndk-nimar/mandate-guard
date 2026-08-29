@@ -82,8 +82,12 @@ class BinnedBaseline(BaseModel):
         return f"CASE {arms} ELSE {self.fallback} END"
 
 
-def _conditions() -> list[tuple[str, str]]:
+def bin_conditions() -> list[tuple[str, str]]:
     """(label, SQL condition) per bin, in order, covering the whole real line.
+
+    Public because `hazard.py` builds its expiry dummies from the same list. The model is
+    then handed exactly the information `expiry_bins` has, so any improvement it shows has
+    to come from somewhere other than a finer view of the same column.
 
     Nulls are deliberately not given a bin -- they fall through to the `ELSE` arm, which
     is the fallback. A null here means the row's coverage end is unknown, which is a
@@ -122,7 +126,7 @@ def fit_bins(con: duckdb.DuckDBPyConnection, source: str, where: str) -> BinnedB
     The `CASE` is evaluated top to bottom, so each arm only has to state its own upper
     bound -- the lower bound is "everything the previous arms did not take".
     """
-    pairs = _conditions()
+    pairs = bin_conditions()
     arms = " ".join(f"WHEN {condition} THEN {index}" for index, (_, condition) in enumerate(pairs))
     rows = con.execute(
         f"""

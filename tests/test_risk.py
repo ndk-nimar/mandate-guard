@@ -16,9 +16,10 @@ from datetime import date
 from math import log
 
 import duckdb
+import numpy as np
 import pytest
 
-from mandateguard.risk import baseline, scoring
+from mandateguard.risk import baseline, calibration, hazard, scoring
 
 SNAPSHOT = date(2017, 2, 28)
 
@@ -205,3 +206,210 @@ def test_a_null_coverage_end_is_not_filed_as_far_from_expiry(con):
     null_row = table(con, [("2016-01-04", None, False)])
     got = con.execute(f"SELECT {fitted.expression} FROM {null_row}").fetchone()
     assert got == (pytest.approx(fitted.fallback),)
+
+
+# --------------------------------------------------------------------------------
+# The hazard model (T1.7).
+# --------------------------------------------------------------------------------
+
+
+def hazard_frame(con: duckdb.DuckDBPyConnection, rows: int = 4000) -> str:
+    """A synthetic person-period frame with the real column set and a real signal.
+
+    Death probability rises as coverage runs out, so a fitted model has something to
+    find; a quarter of the rows carry no `members` record, so every nullable column is
+    null somewhere. That second half is the point of the fixture -- nulls inside an
+    indicator are what broke the first fit.
+    """
+    con.execute(f"""
+        CREATE OR REPLACE TEMP TABLE hz AS
+        SELECT
+            'm' || (i % 200)::VARCHAR                            AS mandate_id,
+            (i % 60)::INTEGER                                    AS week_index,
+            DATE '2015-01-05' + INTERVAL 1 DAY * (7 * (i % 100)) AS week_start,
+            (hash(i::VARCHAR) % 100) < (CASE WHEN i % 31 < 4 THEN 40 ELSE 2 END) AS event,
+            CASE WHEN i % 31 < 4 THEN i % 4 ELSE 10 + i % 40 END AS days_to_coverage_end,
+            (i % 29)::INTEGER                                    AS days_since_last_txn,
+            (99 + (i % 3) * 30)::DECIMAL(12,1)                   AS amount_inr,
+            (30 + (i % 2) * 60)::INTEGER                         AS debit_frequency_days,
+            i % 97 = 0                                           AS frequency_imputed,
+            i % 53 <> 0                                          AS auto_renew,
+            (i % 7)::DECIMAL(12,1)                               AS discount_inr,
+            (1 + i % 12)::INTEGER                                AS debits_so_far,
+            (i % 3)::INTEGER                                     AS cancels_so_far,
+            (149 * (1 + i % 12))::DECIMAL(38,1)                  AS paid_so_far_inr,
+            'upi_autopay'                                        AS method,
+            CASE WHEN i % 4 = 0 THEN NULL ELSE (1 + i % 22)::SMALLINT END AS city,
+            CASE WHEN i % 4 = 0 THEN NULL ELSE (7 - (i % 3))::SMALLINT END AS registered_via,
+            CASE WHEN i % 4 = 0 THEN NULL WHEN i % 2 = 0 THEN 'male' ELSE 'female' END AS gender,
+            NULL::INTEGER                                        AS age_years,
+            i % 4 <> 0                                           AS member_record_found,
+            CASE WHEN i % 4 = 0 THEN NULL ELSE (100 + i)::INTEGER END AS account_age_days,
+            i % 11 = 0                                           AS left_truncated,
+            (7 * (i % 60))::INTEGER                              AS tenure_days
+        FROM range({rows}) t(i)
+    """)
+    return "hz"
+
+
+def test_every_feature_survives_a_row_with_nothing_in_it(con):
+    """A null indicator has to be 0, not null. `sklearn` refuses a NaN, and it is right
+    to: "no city on record" is not a missing value waiting to be imputed, it is a zero
+    for every city dummy -- `member_known` is the column that carries the absence."""
+    con.execute("""
+        CREATE OR REPLACE TEMP VIEW empty_row AS SELECT
+            0 AS week_index, NULL::INTEGER AS days_to_coverage_end,
+            NULL::INTEGER AS days_since_last_txn, NULL::DOUBLE AS amount_inr,
+            NULL::INTEGER AS debit_frequency_days, NULL::BOOLEAN AS frequency_imputed,
+            NULL::BOOLEAN AS auto_renew, NULL::DOUBLE AS discount_inr,
+            NULL::INTEGER AS debits_so_far, NULL::INTEGER AS cancels_so_far,
+            NULL::DOUBLE AS paid_so_far_inr, NULL::SMALLINT AS city,
+            NULL::SMALLINT AS registered_via, NULL::VARCHAR AS gender,
+            NULL::BOOLEAN AS member_record_found, NULL::INTEGER AS account_age_days,
+            NULL::BOOLEAN AS left_truncated
+    """)
+    features = hazard.feature_spec()
+    columns = ", ".join(f"{f.sql} AS {f.name}" for f in features)
+    values = con.execute(f"SELECT {columns} FROM empty_row").fetchone()
+    assert values is not None
+    assert all(v is not None for v in values)
+
+
+def test_the_excluded_columns_are_nowhere_in_the_feature_set():
+    """Five exclusions, each argued in the module docstring. A test rather than a comment
+    because the cost of quietly re-adding one is a model that looks better and means
+    less: `age_years` would learn signup channel through its own missingness, `method` is
+    a hash so any coefficient is overfit, `week_start` is calendar time the out-of-time
+    split cannot carry forward, and `tenure_days` is `7 * week_index` exactly."""
+    everything = " ".join(f.sql for f in hazard.feature_spec())
+    for banned in ("age_years", "method", "week_start", "tenure_days", "death_kind"):
+        assert banned not in everything
+
+
+def test_feature_names_are_unique():
+    names = [f.name for f in hazard.feature_spec()]
+    assert len(names) == len(set(names))
+
+
+def test_the_fit_is_reproducible(con):
+    """Same frame, same seed, same coefficients. The subsample is a hash of the row key
+    rather than an RNG draw, and the matrix is ordered before it reaches sklearn."""
+    source = hazard_frame(con)
+    first = hazard.fit(con, source, "TRUE", seed=20260905, rows=4000)
+    second = hazard.fit(con, source, "TRUE", seed=20260905, rows=4000)
+    assert first.coefficients == second.coefficients
+    assert first.intercept == second.intercept
+
+
+def test_a_different_seed_draws_a_different_subsample(con):
+    """The seed has to actually reach the draw, or `config/params.yaml`'s seed is
+    decorative."""
+    source = hazard_frame(con)
+    a = hazard.fit(con, source, "TRUE", seed=1, rows=2000)
+    b = hazard.fit(con, source, "TRUE", seed=2, rows=2000)
+    assert a.coefficients != b.coefficients
+
+
+def test_the_sql_expression_reproduces_sklearns_own_predictions(con):
+    """The model is fitted in Python and scored in SQL, so the two have to agree to
+    floating point. If they did not, every number in docs/eval.md would be describing a
+    model that was never fitted -- and nothing would fail."""
+    source = hazard_frame(con)
+    model = hazard.fit(con, source, "TRUE", seed=20260905, rows=4000)
+
+    columns = ", ".join(f.sql for f in model.features)
+    matrix = con.execute(f"SELECT {columns} FROM {source} ORDER BY mandate_id, week_index").df()
+    logits = matrix.to_numpy(dtype=float) @ np.array(model.coefficients) + model.intercept
+    expected = 1.0 / (1.0 + np.exp(-logits))
+
+    got = (
+        con.execute(f"SELECT {model.expression} FROM {source} ORDER BY mandate_id, week_index")
+        .df()
+        .to_numpy(dtype=float)
+        .ravel()
+    )
+    assert np.allclose(got, expected, atol=1e-9)
+
+
+def test_predictions_are_probabilities(con):
+    source = hazard_frame(con)
+    model = hazard.fit(con, source, "TRUE", seed=20260905, rows=4000)
+    row = con.execute(
+        f"SELECT min({model.expression}), max({model.expression}), "
+        f"count(*) FILTER (WHERE {model.expression} IS NULL) FROM {source}"
+    ).fetchone()
+    assert row is not None
+    assert 0.0 < row[0] <= row[1] < 1.0
+    assert row[2] == 0
+
+
+def test_the_model_is_not_reweighted_into_miscalibration(con):
+    """`class_weight="balanced"` is the reflex at a 1% base rate and it would multiply
+    every prediction by the imbalance ratio. The allocator turns these probabilities into
+    rupees, so a uniformly inflated one prices every decision too high -- and eval.md 1.4
+    already showed a well-discriminating, badly-calibrated model losing on Brier."""
+    source = hazard_frame(con)
+    model = hazard.fit(con, source, "TRUE", seed=20260905, rows=4000)
+    fitted = scoring.score(con, source, model.expression, "TRUE", "hazard")
+    assert fitted.calibration_in_the_large == pytest.approx(1.0, abs=0.15)
+
+
+def test_the_model_beats_the_constant_baseline_on_its_own_training_signal(con):
+    """A smoke test, not a claim: on a fixture where risk really does rise with closeness
+    to expiry, a model that could not beat a constant would be broken."""
+    source = hazard_frame(con)
+    model = hazard.fit(con, source, "TRUE", seed=20260905, rows=4000)
+    rate = baseline.constant(con, source, "TRUE")
+    reference = scoring.score(con, source, str(rate), "TRUE", "constant")
+    fitted = scoring.score(con, source, model.expression, "TRUE", "hazard")
+    assert fitted.skill_against(reference) > 0.1
+
+
+# --------------------------------------------------------------------------------
+# Calibration (T1.8).
+# --------------------------------------------------------------------------------
+
+
+def test_a_perfectly_calibrated_model_has_no_calibration_error(con):
+    """The metric has to be zero when it should be zero, or its value on the real model
+    is a number with no reference point."""
+    source = table(con, [("2016-01-04", 1, i % 10 == 0) for i in range(1000)])
+    curve = calibration.reliability(con, source, "0.1", "TRUE", "exact", buckets=4)
+    assert curve.rows == 1000
+    assert curve.expected_calibration_error == pytest.approx(0.0, abs=0.02)
+
+
+def test_a_uniformly_doubled_model_shows_up_as_calibration_error(con):
+    source = table(con, [("2016-01-04", 1, i % 10 == 0) for i in range(1000)])
+    curve = calibration.reliability(con, source, "0.2", "TRUE", "doubled", buckets=4)
+    assert curve.expected_calibration_error == pytest.approx(0.1, abs=0.02)
+
+
+def test_buckets_hold_equal_numbers_of_person_weeks(con):
+    """Equal-count, not equal-width. At a base rate near 0.7% equal-width bins put
+    everything in the first bucket, and the curve becomes one point."""
+    source = table(con, [("2016-01-04", i, i % 7 == 0) for i in range(100)])
+    curve = calibration.reliability(
+        con, source, "days_to_coverage_end / 1000.0", "TRUE", "spread", buckets=5
+    )
+    assert [b.rows for b in curve.buckets] == [20, 20, 20, 20, 20]
+
+
+def test_a_bucket_with_no_deaths_reports_no_ratio_rather_than_infinity(con):
+    source = table(con, [("2016-01-04", 1, False)] * 10)
+    curve = calibration.reliability(con, source, "0.01", "TRUE", "quiet", buckets=2)
+    assert all(b.line.endswith("-- |") for b in curve.buckets)
+
+
+def test_the_diagram_is_byte_identical_across_runs(tmp_path, con):
+    """The PNG is committed, so ADR 0003 applies to it too: matplotlib stamps its own
+    version into every file it writes, and without suppressing that the diagram changes
+    whenever matplotlib does."""
+    source = table(con, [("2016-01-04", i, i % 5 == 0) for i in range(200)])
+    curve = calibration.reliability(
+        con, source, "0.001 + days_to_coverage_end / 1000.0", "TRUE", "curve", buckets=5
+    )
+    first = calibration.plot([curve], tmp_path / "a.png").read_bytes()
+    second = calibration.plot([curve], tmp_path / "b.png").read_bytes()
+    assert first == second
+    assert b"matplotlib" not in first.lower()
