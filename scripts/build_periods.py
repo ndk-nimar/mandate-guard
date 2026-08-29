@@ -17,7 +17,7 @@ from __future__ import annotations
 import argparse
 
 from mandateguard.data.cancel import RENEWAL_TOLERANCE_DAYS
-from mandateguard.data.paths import processed_dir, source_dir
+from mandateguard.data.paths import frame_dir, source_dir
 from mandateguard.data.periods import build, format_report
 
 
@@ -43,10 +43,16 @@ def main() -> int:
 
     interim = source_dir(args.sample)
     print(f"Reading from : {interim}")
-    print(f"Writing to   : {'(nothing -- dry run)' if args.dry_run else processed_dir()}")
+    out_dir = frame_dir(args.sample)
+    print(f"Writing to   : {'(nothing -- dry run)' if args.dry_run else out_dir}")
     print()
 
-    report = build(interim=interim, tolerance_days=args.tolerance_days, write=not args.dry_run)
+    report = build(
+        interim=interim,
+        out_dir=out_dir,
+        tolerance_days=args.tolerance_days,
+        write=not args.dry_run,
+    )
     print(format_report(report))
     return 0
 

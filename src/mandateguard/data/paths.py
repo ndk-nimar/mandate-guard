@@ -65,6 +65,18 @@ def source_dir(sample: bool = False) -> Path:
     return sample_dir() if sample else interim_dir()
 
 
+def frame_dir(sample: bool = False) -> Path:
+    """Where a derived frame is written and read back from.
+
+    The sample's frames live in their own subdirectory rather than overwriting the full
+    ones. Both are gitignored, so the only thing separating a sample-derived number from
+    a full-data one would otherwise be which script ran last -- and a 5,079-subscriber
+    Brier score quoted as a 1.4M-mandate Brier score is exactly the kind of mistake that
+    nothing downstream would catch.
+    """
+    return processed_dir() / "sample" if sample else processed_dir()
+
+
 def spill_dir() -> Path:
     """Where DuckDB may spill an intermediate that will not fit in RAM.
 

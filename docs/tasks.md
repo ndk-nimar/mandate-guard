@@ -142,9 +142,17 @@ Goal: a lapse-hazard model fit on real subscriber data that beats a naive baseli
   sample reproduces the full book's shape (retention 59.6% vs 58.9%, `q` 0.387 vs 0.407)
   and enters every branch the pipeline has (§4.3).
 
-- [ ] **T1.6 — Naive baseline.** "Risk equals closeness to expiry." Score it first, so the
+- [x] **T1.6 — Naive baseline.** "Risk equals closeness to expiry." Score it first, so the
   real model has something to beat.
   **Done when:** the baseline Brier score is recorded.
+  **Done:** `docs/eval.md` §1. Three baselines, out-of-time split, scored in SQL over the
+  full 6.35M-row held-out slice. `expiry_bins` Brier **0.007400**, log loss **0.0401**;
+  `base_rate` Brier **0.007269**. The taken-literally rule (`expiry_rule`) is 29x worse
+  than the floor, which is the number that justifies the project. `expiry_bins`
+  discriminates better than the floor and still loses on Brier, because the training
+  period's death rate is 0.0139 and the test period's is 0.0073 — a duration-mix shift
+  a period-agnostic lookup cannot track. §1.5 states the two specific bars T1.7 has to
+  clear.
 
 - [ ] **T1.7 — Discrete-time survival model.** `sklearn` logistic regression on the
   person-period frame, per-week hazard. Not Cox: simpler, calibrates better, easier to
