@@ -468,11 +468,41 @@ by making the decision variable `(mandate, channel, week)`.
   the range is 0.01667–0.09673 and skewed, so the midpoint is nowhere near it. Caught by
   going to compute them. They are generated now.
 
-- [ ] **T3.8 — [CUT #1] P5 `WhittleIndex`.** Multi-period restless bandit over
+- [x] **T3.8 — [CUT #1] P5 `WhittleIndex`.** Multi-period restless bandit over
   `(mandate, channel, week)`, 12-week horizon, per-week budgets, binary search on the
   subsidy lambda. If Day 7 ends without it working, ship five arms and say so.
   **Done when:** the six-arm chart renders, or the arm is formally dropped in
   `docs/eval.md`.
+  **Done — not cut.** `allocator/whittle.py`, 14 tests, `docs/eval.md` §8, and the
+  six-arm chart is in `results.md` §2. Backward induction over `(week, asks, recency)`,
+  vectorised across the whole book with numpy; the index is the subsidy at which acting
+  and waiting are indifferent.
+  **P5 buys the same 109 asks as P4 and is worth 9.8% more for them.** Identical volume,
+  different schedule: P4 front-loads 70 asks into the first three weeks, P5 puts 42 in the
+  back half against P4's 20. Nothing else differs, so the entire margin is timing.
+  **Why there was timing to find** — the aggregate hides it. `results.md` §1's median
+  hazard barely moves (0.00164 → 0.00140), but that median is *across* mandates: the
+  median mandate's own hazard varies **60x** across the horizon and peak weeks are spread
+  over all twelve. A cross-sectional median of a time series says nothing about the time
+  series. Checked before building, per the T3.7 lesson.
+  Three things this cost, all recorded in §8.3 and the journals:
+  * **The arm shipped with its answer depending on its own tolerance** — 31 asks at 8
+    bisection steps, 108 at 16, 109 at 24. The bracket was a single global ceiling (~1,300
+    against an index under a rupee), so the halvings were spent travelling. A bracket safe
+    as a *bound* was wrong as a *bracket*. Per-mandate bracket seeded at `lambda = 0`
+    fixed it; stable from six halvings now, and pinned.
+  * **`id()`-keyed memoisation served one book's arrays to another.** ids are unique only
+    among *live* objects, so a collected `Horizon` handed its address to the next. It
+    surfaced as an index identical to six decimals across hazards 0.10–0.30 — nearly
+    written up as a finding about the value function. Tables are threaded as an argument
+    now.
+  * **`MandateWeek` gained `hazard_path`, offered to every arm.** The harness had it since
+    T2.1a and was not passing it on. Without it P5 was worth +1% over P4; with it, +9.8%.
+    Given to all six arms deliberately — handing it to P5 alone would make the result a
+    claim about *information* rather than about formulation.
+  Honest limits: the index is a heuristic (indexability unverified), the free channel is
+  excluded from it for the same reason it broke T3.4's bracket, and it costs ~50s a run —
+  so it is in the ladder and deliberately out of the sweeps.
 
 - [ ] **T3.9 — `eval/holdout.py` — Meta's identification design.** A 50% random-drop
   holdout matching `P(active|do(send)) − P(active|do(drop))`. You cannot run this in
@@ -488,8 +518,9 @@ by making the decision variable `(mandate, channel, week)`.
   **Done when:** committed, and it names the three things needed before production — real
   India mandate data, an intervention holdout, and a shadow-mode merchant pilot.
 
-> **GATE 3** — The six-arm chart exists (or five, honestly labelled) and theta prints as a
-> real rupee number.
+> **GATE 3 — PASSED.** The six-arm chart exists (`results.md` §2: P0–P5, none cut) and
+> theta prints as a real rupee number — INR 4.5626 at the tightest binding budget on the
+> sample book, agreeing with CBC's LP dual to 0.00% (`eval.md` §4). Both halves met.
 
 **Interleaved reading (~5h):** MCKP and LP duality (3h, P1, **before T3.3**) · ARMMAN
 AAAI 2022 Whittle index (2h, P2, before T3.8).

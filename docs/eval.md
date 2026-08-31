@@ -11,6 +11,7 @@ solver, and what that shape costs. Section 6 (T3.6) is the only *external* check
 document -- our result against LinkedIn's published one -- and it is the one this project
 fails. Section 7 (T3.7) is the second external check, against Pinterest's inverted U, and
 it is a negative result that was predicted from the value function before it was measured.
+Section 8 (T3.8) is the sixth arm and what its extra formulation actually bought.
 
 Reproduce with:
 
@@ -601,9 +602,7 @@ uv run python scripts/run_theta.py --sample
 
 ### 6.1 The three deltas
 
-Reference `P1` against challenger `P4`, same book, same 12-week horizon, at a budget of
-INR 67.70 per week -- enough for one bulk ask per mandate per week, so the reference
-contacts everybody and the budget never binds on it.
+Reference `P1` against challenger `P4`, same book, same 12-week horizon, at a budget of INR 67.70 per week -- enough for one bulk ask per mandate per week, so the reference contacts everybody and the budget never binds on it.
 
 | axis | LinkedIn (KDD 2016) | here | reference | challenger |
 |---|---:|---:|---:|---:|
@@ -617,6 +616,30 @@ contacts everybody and the budget never binds on it.
 And retention moves the **wrong way**: +7.4% here against LinkedIn's -1.8%. Cutting asks is not supposed to *raise* the thing the asks were for.
 
 There is a coherent reading and it is not a flattering one. LinkedIn's marginal notification was worth roughly nothing -- they dropped two thirds of their volume and lost 1.8% of sessions, which is what near-zero value looks like. In this model the marginal ask is worth *less* than nothing, because backfire makes contacting a healthy mandate actively harmful. So the reference arm is not merely wasteful here, it is destructive, and declining to do what it does shows up as a gain.
+
+### Does any backfire rate reproduce it?
+
+`intervention.backfire_first_ask` has no public measurement (`calibration.md` §4). LinkedIn's triple is the only external observation this project has that the parameter *should* be able to reproduce, so the obvious question is which value does. The twelfth-ask rate moves with the first, holding the ten-to-one ladder `problem.md` §5.1 gives.
+
+| backfire (1st ask) | volume | engagement | complaints | distance from LinkedIn |
+|---:|---:|---:|---:|---:|
+| 0.00000 | -91.3% | -0.2% | -- | 0.1419 |
+| 0.00005 | -91.3% | -0.2% | -97.9% | 0.2646 |
+| 0.00010 | -91.4% | -0.1% | -97.9% | 0.2651 |
+| 0.00030 | -91.5% | +0.2% | -97.6% | 0.2652 |
+| 0.00060 | -91.6% | +0.6% | -97.6% | 0.2669 |
+| 0.00100 | -92.5% | +1.1% | -97.8% | 0.2724 |
+| 0.00300 | -98.1% | +3.6% | -99.1% | 0.3035 |
+| 0.00600 **(shipped)** | -99.3% | +7.4% | -99.7% | 0.3225 |
+| 0.01200 | -99.8% | +15.8% | -99.9% | 0.3526 |
+| 0.02500 | -100.0% | +36.5% | -100.0% | 0.4226 |
+
+**No value of backfire reproduces LinkedIn's shape.**
+At 0.00000 neither arm causes a single revocation, so the complaints axis has no baseline and those rows are scored over two axes rather than three. Their distance is therefore *not* comparable with the others and they are excluded from the comparison below -- a row that wins by dropping the axis we are furthest off on has not won anything.
+Among the 9 rows scored on all three axes the closest is 0.00005, at a distance of 0.2646, and even there the volume cut is -91.3% against LinkedIn's -64.5%.
+The distance rises monotonically with backfire across the whole sweep, so the closest fit is at the bottom of the range and lowering backfire further only runs into the degenerate rows above. **The mismatch is not a backfire value we have mis-set: turning backfire down does not close it.** That rules out the one explanation this project had a knob for, which is worth more than a fitted value would have been.
+
+What backfire *does* control is the engagement axis. At the shipped 0.00600 retention moves +7.4%; at the bottom of the sweep it moves -0.2%, which is LinkedIn's direction. So the wrong-way retention number is a consequence of an unmeasured parameter and is the most parameter-sensitive figure in this project -- not an independent finding about allocation.
 
 ### 6.2 Does any backfire rate reproduce it?
 
@@ -742,10 +765,6 @@ Asks rise monotonically with hazard: this is a **threshold**, not an inverted U,
 
 ![Asks by risk segment](img/segments.png)
 
-
-Checked at 25 buckets as well as 10, in case an inverted U was hiding inside the top
-decile: the curve is strictly monotone all the way to the busiest bucket. It is not.
-
 ### 7.3 What this is and is not
 
 **This is a negative result, and it was predicted before it was run.** `eval/segments.py`
@@ -780,3 +799,87 @@ concentrates its asks where the risk is, spends nothing on the 80% of the book t
 nowhere near expiry, and does so without anyone writing a rule that says so. That is the
 threshold falling out of the pricing rather than being configured -- the same way §2 of
 `results.md` got its refusal semantics.
+
+
+---
+
+## 8. What planning bought (T3.8) -- done
+
+`P5` is the last arm and the only one that can decline an ask **because a better week is
+coming**. Every arm before it decides one week at a time; `P4` solves the whole book at
+once, which is a real advance over a sort, but its horizon is still seven days.
+
+Each mandate is its own Markov decision process over `(week, asks so far, weeks since last
+ask)`; the budget is the only thing coupling them, and Whittle's relaxation prices that
+coupling with a subsidy `lambda` -- exactly as §4 prices it with theta. Once priced, the
+mandates separate and each is solved on its own. The **index** of a state is the subsidy at
+which acting and waiting are exactly indifferent there: an urgency score, comparable across
+mandates, computed once and then ranked.
+
+`theta` is reported as `--` for this arm in `results.md`, and that is correct rather than
+missing. `theta` is one price for the whole book's budget constraint; `lambda` is resolved
+*per mandate* into an index. They are different objects and printing one in the other's
+column would be a category error.
+
+### 8.1 Why this book has anything to plan for
+
+Worth establishing before the result, because the aggregate hides it. `results.md` §1 shows
+the median hazard barely moving across the horizon -- 0.00164 in week 0, 0.00140 in week 11
+-- which reads like a book with no timing structure at all.
+
+That median is taken **across mandates**, and it conceals what happens **within** one. The
+median mandate's hazard varies by a factor of about **60** between its quietest and its
+riskiest week, and the peak week is spread across all twelve: 8.9% of mandates peak in week
+0, 12.2% in week 11. The hazard model keys on days-to-coverage-end, so risk climbs as each
+renewal approaches and falls again after it.
+
+A cross-sectional median of a time series says nothing about the time series. That is the
+only reason a multi-period arm has any room to work here at all.
+
+### 8.2 The result
+
+Both arms at INR 67.70 per week over 12 weeks, same book, same value function. `P0` retains INR 413,219 by contacting nobody; the gains below are over that.
+
+| arm | asks | spend (INR) | gain over P0 (INR) | vs P4 |
+|---|---:|---:|---:|---:|
+| `P4` myopic | 109 | 39.80 | 212 | -- |
+| `P5` planned | 109 | 39.80 | 232 | +9.8% |
+
+| week | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `P4` asks | 32 | 20 | 18 | 6 | 7 | 6 | 6 | 2 | 2 | 4 | 4 | 2 |
+| `P5` asks | 22 | 20 | 13 | 5 | 3 | 4 | 2 | 3 | 8 | 13 | 10 | 6 |
+
+**Identical volume -- 109 asks each -- and a different schedule.** `P4` front-loads: 70 of its asks land in the first three weeks. `P5` puts 42 of its asks in the back half of the horizon against `P4`'s 20. Nothing else differs, so the entire margin is timing.
+
+**And almost none of the index is the future, which is the deflating part.**
+Holding a mandate's hazard today fixed and varying only what comes after moves its index by **0.019%** of its level. Varying *today's* hazard from 0.10 to 0.30 moves it by **144%**. The index is overwhelmingly a price of present risk with a rounding error of foresight on top.
+
+That rounding error is still what produced the margin above. The index is consumed as a **ranking** under a binding budget, and at the margin a 0.02% difference is enough to decide which mandate gets the last rupee this week and which one waits. A signal too small to see in the level is not too small to reorder a queue.
+
+
+### 8.3 What this arm is not
+
+**The index is a heuristic, not an optimum.** Whittle's relaxation is exactly optimal only
+in the infinite-population limit and requires *indexability*, which is not verified here
+and is genuinely hard to verify. This section reports what the arm did rather than what it
+must do; `tests/test_whittle.py` guards a regression, not a guarantee.
+
+**The free channel had to be excluded from the index, for the same reason it broke §4's
+bracket.** `in_app` costs nothing, so `lambda * k = 0` for it at every subsidy: a free ask
+worth making is worth making at any price of budget, and the indifference point runs to
+infinity. The index is therefore defined over budget-consuming channels only, against a
+baseline of "wait, or send something free" -- which is the same conclusion `mckp.py`
+reached from the other direction, that the budget rations *which channel*, never *whether*.
+
+**It costs about fifty seconds a run**, against under two for `P4`. That is a backward
+induction per bisection step per week, and it is why `P5` is in the ladder -- where the
+six-arm comparison is the deliverable -- and deliberately out of the sweeps, where it would
+multiply that minute by several hundred cells.
+
+**The arm shipped with a bug that made its answer depend on its own tolerance.** The first
+version bracketed each index with a single global ceiling, and returned 31 asks at 8
+bisection steps, 108 at 16 and 109 at 24. Every one of those looks like a result. A number
+that moves with a stopping rule is not one, and the fix -- a per-mandate bracket seeded
+from the value of acting at `lambda = 0` -- is what makes the figures above stable from six
+halvings onward. It is pinned as a test.

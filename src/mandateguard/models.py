@@ -164,6 +164,23 @@ class MandateWeek(BaseModel):
     weeks_since_last_ask: int | None = Field(
         default=None, description="d[i,t] in weeks; None if never contacted"
     )
+    hazard_path: list[float] | None = Field(
+        default=None,
+        description="h[i,t..T] projected forward from this week; None when unavailable",
+    )
+    """The rest of the horizon's hazards, for an arm that can plan over them.
+
+    Offered to **every** arm, not just to P5, and that is the point. The harness has had
+    this path since T2.1a (`eval/forecast.py` builds it) and simply was not passing it on;
+    handing it to one arm only would make "the multi-period arm beats the single-period
+    one" a claim about *information* rather than about formulation, and the ladder exists
+    to isolate allocation.
+
+    `None` is a real case rather than a defensive default: the API layer (T5.3) is handed
+    one mandate in one week by a caller who may have no forecast at all, and an arm has to
+    degrade rather than fail. `allocator/whittle.py` falls back to projecting this week's
+    hazard flat, and says what that costs.
+    """
 
     @model_validator(mode="after")
     def _lapse_recovers_better_than_revocation(self) -> Self:

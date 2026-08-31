@@ -219,6 +219,9 @@ def run(
                 recovery_after_lapse=m.recovery_after_lapse,
                 recovery_after_revocation=m.recovery_after_revocation,
                 asks_so_far=state[m.mandate_id].asks,
+                # From this week to the end of the horizon. The harness has always had
+                # this; until T3.8 no arm was given it.
+                hazard_path=m.hazards[week:],
                 weeks_since_last_ask=(
                     None
                     if state[m.mandate_id].last_ask_week is None

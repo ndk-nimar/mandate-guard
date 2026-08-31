@@ -72,6 +72,7 @@ week, so the budget does not bind and each arm asks as much as it wants to.
 | P2 | 1,132.0 | 83.604% | 90.4 | 384,953 | 16,236 | -18.61 | -302,089 | -- |
 | P3 | 1,215.4 | 89.765% | 0.1 | 413,262 | 49 | 0.30 | 14 | -- |
 | P4 | 1,215.9 | 89.801% | 0.3 | 413,470 | 109 | 0.74 | 81 | 0.00 |
+| P5 | 1,216.0 | 89.805% | 0.3 | 413,491 | 109 | 0.82 | 90 | -- |
 
 | arm | what it does |
 |---|---|
@@ -80,6 +81,7 @@ week, so the budget does not bind and each arm asks as much as it wants to.
 | `P2` | the same budget, rotated fairly. |
 | `P3` | top-B by expected rupee value, pricing backfire. |
 | **`P4`** | **ours** -- multiple-choice knapsack over (mandate, channel), solved under the shared budget, with the LP dual as theta. |
+| **`P5`** | **ours** -- Whittle index over (mandate, channel, week). The only arm that can decline an ask *because a better week is coming*. |
 
 ```
 cost of one ask  = backfire(1) x channel softness x loss_on_revocation
@@ -115,6 +117,14 @@ contacted without touching the budget at all. **No mandate here is refused for
 lack of money**; every refusal is "not worth asking". The budget rations
 *which channel*, not *whether* -- which is `problem.md` §5.1 falling out of the
 solver rather than being asserted at it.
+
+**`P5` is the only arm that can decline an ask because a better week is coming.**
+`P4` re-solves the whole book every week and is still myopic inside each one; `P5`
+prices the state `(mandate, channel, week)` over the full horizon and ranks by the
+subsidy at which asking now beats waiting.
+On this book it buys **the same 109 asks** as `P4` and is
+worth INR 21 more for them -- +9.8% on the gain over doing nothing. Identical volume,
+different weeks: that is the whole of what the extra formulation bought.
 
 The large number in this table is on the other side. `P1` and `P2`, spending a
 budget that never binds, destroy
@@ -217,8 +227,8 @@ them.
 
 ## 5. What this does and does not show
 
-* **`P4` is ours; the rest are not.**
-  `P5` (Whittle index) is still Phase 3. The best arm on profit here is `P4`.
+* **`P4`, `P5` are ours; the rest are not.**
+  The best arm on profit here is `P5`.
 * **`theta` is zero, not missing.** The LP dual exists and prices the budget
   at nothing, because the constraint is slack here and the next rupee buys
   nothing. `eval.md` §4 prices the budgets where it does bind.

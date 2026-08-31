@@ -22,6 +22,7 @@ import duckdb
 from mandateguard.allocator.base import NoAskPolicy
 from mandateguard.allocator.baselines import ChronologicalCap, GreedyEV, RoundRobin, bulk_channel
 from mandateguard.allocator.mckp import MCKPPolicy
+from mandateguard.allocator.whittle import WhittleIndex
 from mandateguard.data import mandates, periods
 from mandateguard.data.cancel import RENEWAL_TOLERANCE_DAYS
 from mandateguard.data.paths import ROOT, frame_dir, sample_dir, spill_dir
@@ -42,7 +43,7 @@ def _ladder_reading(ladder: list[world.RunMetrics]) -> list[str]:
     channel prior moved P3 across the frontier. Claims that depend on the numbers have to
     be computed from the numbers.
     """
-    floor, queue, rotation, greedy, knapsack = ladder
+    floor, queue, rotation, greedy, knapsack, planned = ladder
     lines = [
         "```",
         "cost of one ask  = backfire(1) x channel softness x loss_on_revocation",
@@ -68,6 +69,7 @@ def _ladder_reading(ladder: list[world.RunMetrics]) -> list[str]:
             "and a large loss.",
         ]
     lines += _knapsack_reading(greedy, knapsack)
+    lines += _planning_reading(floor, knapsack, planned)
     lines += [
         "",
         "The large number in this table is on the other side. `P1` and `P2`, spending a",
@@ -82,6 +84,46 @@ def _ladder_reading(ladder: list[world.RunMetrics]) -> list[str]:
         "not bind -- both contact everyone every week, so there is nothing for a rotation",
         "to rotate. They separate as soon as the budget does bind, which is §3.",
     ]
+    return lines
+
+
+def _planning_reading(
+    floor: world.RunMetrics, knapsack: world.RunMetrics, planned: world.RunMetrics
+) -> list[str]:
+    """What P5 bought that P4 could not -- derived, because the sign is not guaranteed.
+
+    Whittle's relaxation is a heuristic: it is exactly optimal only in the infinite
+    population limit, and indexability is not verified here. So this reads the comparison
+    off the run rather than asserting the arm wins, in the same shape `_knapsack_reading`
+    already uses for P4 against P3.
+    """
+    gain = planned.profit_inr - floor.profit_inr
+    baseline = knapsack.profit_inr - floor.profit_inr
+    lines = [
+        "",
+        "**`P5` is the only arm that can decline an ask because a better week is coming.**",
+        "`P4` re-solves the whole book every week and is still myopic inside each one; `P5`",
+        "prices the state `(mandate, channel, week)` over the full horizon and ranks by the",
+        "subsidy at which asking now beats waiting.",
+    ]
+    if baseline <= 0:
+        lines.append(
+            f"It gains INR {gain:,.0f} over doing nothing, against `P4`'s INR {baseline:,.0f}."
+        )
+        return lines
+    if planned.asks_spent == knapsack.asks_spent:
+        lines += [
+            f"On this book it buys **the same {planned.asks_spent:,} asks** as `P4` and is",
+            f"worth INR {gain - baseline:,.0f} more for them -- "
+            f"{gain / baseline - 1:+.1%} on the gain over doing nothing. Identical volume,",
+            "different weeks: that is the whole of what the extra formulation bought.",
+        ]
+    else:
+        lines += [
+            f"On this book it buys {planned.asks_spent:,} asks against `P4`'s",
+            f"{knapsack.asks_spent:,}, and is worth INR {gain - baseline:,.0f} more --",
+            f"{gain / baseline - 1:+.1%} on the gain over doing nothing.",
+        ]
     return lines
 
 
@@ -256,6 +298,11 @@ def main() -> int:
         RoundRobin(params),
         GreedyEV(params),
         MCKPPolicy(params),
+        # P5 is the slow one -- a backward induction per bisection step per week, about a
+        # minute on this book. It earns its place in the ladder, where the six-arm
+        # comparison is the whole deliverable, and is deliberately kept out of the sweeps,
+        # where it would multiply that minute by several hundred cells.
+        WhittleIndex(params),
     ]
     ladder = [world.run(live, arm, params, saturation) for arm in arms]
 
@@ -332,6 +379,8 @@ def main() -> int:
             "| `P3` | top-B by expected rupee value, pricing backfire. |",
             "| **`P4`** | **ours** -- multiple-choice knapsack over (mandate, channel), "
             "solved under the shared budget, with the LP dual as theta. |",
+            "| **`P5`** | **ours** -- Whittle index over (mandate, channel, week). The only "
+            "arm that can decline an ask *because a better week is coming*. |",
             "",
             *_ladder_reading(ladder),
             "",

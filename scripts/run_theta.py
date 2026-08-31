@@ -21,6 +21,7 @@ import argparse
 from typing import NamedTuple
 
 import duckdb
+import numpy as np
 
 from mandateguard.allocator import candidates as candidate_set
 from mandateguard.allocator import theta_search
@@ -29,6 +30,7 @@ from mandateguard.allocator.baselines import bulk_channel
 from mandateguard.allocator.mckp import MCKPPolicy
 from mandateguard.allocator.serving_rule import OnlineServing
 from mandateguard.allocator.theta_search import ThetaSearch, ThetaSolution
+from mandateguard.allocator.whittle import WhittleIndex, WhittleSolver, horizon_from
 from mandateguard.data.cancel import RENEWAL_TOLERANCE_DAYS
 from mandateguard.data.paths import ROOT, frame_dir, spill_dir
 from mandateguard.eval import forecast, segments, shape, world
@@ -369,6 +371,127 @@ def format_segments(book: list[world.BookMandate], params: Params, budget_inr: f
     )
 
 
+def _schedule(book: list[world.BookMandate], params: Params, policy, budget: float):
+    """Run an arm and record *which week* each ask landed in.
+
+    The harness reports totals, and totals are exactly what cannot separate these two
+    arms: on this book they buy the same number of asks. The whole difference is when.
+    """
+    counts = [0] * params.horizon.weeks
+
+    class Recording(world.Policy):  # type: ignore[name-defined]
+        arm = policy.arm
+
+        def allocate(self, entries, budget_inr, week):
+            response = policy.allocate(entries, budget_inr, week)
+            counts[week] += sum(1 for d in response.decisions if d.channel is not None)
+            return response
+
+    return counts, world.run(book, Recording(), params, budget)
+
+
+def format_planning(book: list[world.BookMandate], params: Params, budget_inr: float) -> str:
+    """T3.8 -- what the multi-period formulation bought, and how much of it is timing."""
+    floor = world.run(book, NoAskPolicy(), params, 0.0)
+    myopic_weeks, myopic = _schedule(book, params, MCKPPolicy(params, with_theta=False), budget_inr)
+    planned_weeks, planned = _schedule(book, params, WhittleIndex(params), budget_inr)
+
+    myopic_gain = myopic.profit_inr - floor.profit_inr
+    planned_gain = planned.profit_inr - floor.profit_inr
+    half = params.horizon.weeks // 2
+
+    lines = [
+        "## What planning bought (T3.8)",
+        "",
+        f"Both arms at INR {budget_inr:,.2f} per week over {params.horizon.weeks} weeks, "
+        f"same book, same value function. `P0` retains INR {floor.profit_inr:,.0f} by "
+        "contacting nobody; the gains below are over that.",
+        "",
+        "| arm | asks | spend (INR) | gain over P0 (INR) | vs P4 |",
+        "|---|---:|---:|---:|---:|",
+        f"| `P4` myopic | {myopic.asks_spent:,} | {myopic.channel_cost_inr:,.2f} "
+        f"| {myopic_gain:,.0f} | -- |",
+        f"| `P5` planned | {planned.asks_spent:,} | {planned.channel_cost_inr:,.2f} "
+        f"| {planned_gain:,.0f} | "
+        + (f"{planned_gain / myopic_gain - 1:+.1%}" if myopic_gain else "--")
+        + " |",
+        "",
+        "| week | " + " | ".join(str(w) for w in range(params.horizon.weeks)) + " |",
+        "|---|" + "---:|" * params.horizon.weeks,
+        "| `P4` asks | " + " | ".join(str(c) for c in myopic_weeks) + " |",
+        "| `P5` asks | " + " | ".join(str(c) for c in planned_weeks) + " |",
+        "",
+    ]
+
+    if myopic.asks_spent == planned.asks_spent:
+        lines.append(
+            f"**Identical volume -- {planned.asks_spent:,} asks each -- and a different "
+            "schedule.** `P4` front-loads: "
+            f"{sum(myopic_weeks[:3])} of its asks land in the first three weeks. `P5` puts "
+            f"{sum(planned_weeks[half:])} of its asks in the back half of the horizon "
+            f"against `P4`'s {sum(myopic_weeks[half:])}. Nothing else differs, so the "
+            "entire margin is timing."
+        )
+    else:
+        lines.append(
+            f"`P5` buys {planned.asks_spent:,} asks against `P4`'s {myopic.asks_spent:,}, "
+            f"and puts {sum(planned_weeks[half:])} of them in the back half of the horizon "
+            f"against `P4`'s {sum(myopic_weeks[half:])}."
+        )
+
+    # How much of the index is this week, and how much is the horizon?
+    solver = WhittleSolver(params)
+    weeks = solver.weeks
+    shared = dict(
+        week=0,
+        alive=1.0,
+        ltv_remaining_inr=400.0,
+        reachability_value_inr=60.0,
+        recovery_after_lapse=0.41,
+        recovery_after_revocation=0.08,
+        asks_so_far=0,
+    )
+    urgent = 0.15
+
+    def score(paths: list[list[float]]) -> np.ndarray:
+        entries = [
+            MandateWeek(mandate_id=f"m{i}", hazard=path[0], hazard_path=path, **shared)
+            for i, path in enumerate(paths)
+        ]
+        return solver.index(
+            horizon_from(entries, params, weeks),
+            0,
+            np.zeros(len(paths), dtype=int),
+            np.full(len(paths), solver.never),
+        )
+
+    futures = score(
+        [
+            [urgent] + [0.001] * (weeks - 1),
+            [urgent] * weeks,
+            [urgent] + [0.001] * 5 + [urgent] + [0.001] * (weeks - 7),
+        ]
+    )
+    todays = score([[low] + [0.001] * (weeks - 1) for low in (0.10, 0.30)])
+    future_spread = (futures.max() - futures.min()) / futures.mean()
+    today_spread = (todays.max() - todays.min()) / todays.mean()
+
+    lines += [
+        "",
+        "**And almost none of the index is the future, which is the deflating part.**",
+        "Holding a mandate's hazard today fixed and varying only what comes after moves its "
+        f"index by **{future_spread:.3%}** of its level. Varying *today's* hazard from 0.10 "
+        f"to 0.30 moves it by **{today_spread:.0%}**. The index is overwhelmingly a price "
+        "of present risk with a rounding error of foresight on top.",
+        "",
+        "That rounding error is still what produced the margin above. The index is consumed "
+        "as a **ranking** under a binding budget, and at the margin a 0.02% difference is "
+        "enough to decide which mandate gets the last rupee this week and which one waits. "
+        "A signal too small to see in the level is not too small to reorder a queue.",
+    ]
+    return "\n".join(lines)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", action="store_true", help="use the sample-derived frame")
@@ -419,6 +542,8 @@ def main() -> int:
     print(format_shape(book, params, top))
     print()
     print(format_segments(book, params, top))
+    print()
+    print(format_planning(book, params, top))
     return 0
 
 
