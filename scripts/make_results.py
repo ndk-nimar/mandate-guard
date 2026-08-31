@@ -233,6 +233,105 @@ def _arm_caveats(ladder: list[world.RunMetrics]) -> list[str]:
     ]
 
 
+def _sanity_reading(ladder: list[world.RunMetrics]) -> list[str]:
+    """T3.10 -- hold this project's own lift against the most trustworthy public number.
+
+    Adyen's ~6% is an A/B result on live payment traffic, not a simulation, which is why it
+    is the yardstick rather than one of several. The comparison is only meaningful against
+    the right baseline: Adyen contrasts an adaptive policy with a *fixed active* one -- both
+    send, one chooses better -- so the analogue here is `P4` against `P1`, never `P4`
+    against `P0`.
+
+    Every claim below is computed, because a sanity check whose verdict is a string literal
+    checks nothing. If a future parameter change pushes the lift into red-flag territory,
+    this section has to say so on its own.
+    """
+    floor, queue, _rotation, _greedy, knapsack, _planned = ladder
+    ADYEN = 0.06
+    RED_FLAG = 0.40
+
+    active = (knapsack.mandates_retained - queue.mandates_retained) / queue.mandates_retained
+    passive = (knapsack.mandates_retained - floor.mandates_retained) / floor.mandates_retained
+    avoided = queue.revocations_caused - knapsack.revocations_caused
+    gap = knapsack.mandates_retained - queue.mandates_retained
+
+    lines = [
+        "Adyen reports a contextual bandit beating a fixed retry schedule by about",
+        "**6%**. It is the most trustworthy public number in payments for this kind of",
+        "claim, because it is an A/B result on live traffic at scale rather than a",
+        "simulation grading itself. So it is the yardstick: a simulator reporting a 40%",
+        "lift has found a bug, not a result.",
+        "",
+        "The comparison only means anything against the right baseline. Adyen's contrast",
+        "is an adaptive policy against a **fixed active** one -- both send, one chooses",
+        "better. The analogue here is `P4` against `P1`, not `P4` against `P0`.",
+        "",
+        "| contrast | Adyen's analogue? | retained | lift |",
+        "|---|---|---:|---:|",
+        f"| `P4` vs `P1` -- the campaign-tool default | yes | "
+        f"{knapsack.mandates_retained:,.1f} vs {queue.mandates_retained:,.1f} | "
+        f"**{active:+.2%}** |",
+        f"| `P4` vs `P0` -- send nothing | no | "
+        f"{knapsack.mandates_retained:,.1f} vs {floor.mandates_retained:,.1f} | "
+        f"{passive:+.2%} |",
+        "",
+    ]
+
+    if abs(active) >= RED_FLAG:
+        lines += [
+            f"**This fails the check.** {active:+.2%} against an active baseline is past",
+            f"the {RED_FLAG:.0%} line where a simulated lift stops being credible. Nothing",
+            "downstream of this number should be presented until it is explained.",
+        ]
+    else:
+        lines += [
+            f"**The number is on the right side of the line.** {active:+.2%} against an",
+            f"active baseline sits near Adyen's {ADYEN:.0%} and nowhere near the",
+            f"{RED_FLAG:.0%} that would mark a broken simulator. Against doing nothing it",
+            f"is {passive:+.2%} -- and that is the honest figure for what selection buys",
+            "on this book, because `P0` is what most of these mandates already get.",
+        ]
+
+    lines += [
+        "",
+        "**The mechanism is not Adyen's, and the resemblance should not be oversold.**",
+        f"`P1` causes {queue.revocations_caused:,.1f} revocations here and `P4` causes",
+        f"{knapsack.revocations_caused:,.1f}, so {avoided:,.1f} revocations are avoided",
+        f"across a gap of {gap:,.1f} retained mandates.",
+    ]
+    if avoided >= gap:
+        lines += [
+            "**Every mandate of that lift is harm not done, and then some** -- `P1`'s asks",
+            "do generate some uplift, which partly offsets the damage they cause, so the",
+            "avoided revocations exceed the net gap. Adyen's bandit wins by *recovering*",
+            "more payments. This arm wins by *not destroying* consent the other arm",
+            "destroys. Two different claims that produce a similar-looking percentage, and",
+            "conflating them would be the dishonest version of this section.",
+        ]
+    else:
+        lines += [
+            f"That is {avoided / gap:.0%} of the lift, so most of it is harm avoided rather",
+            "than retention created -- a different mechanism from Adyen's, which wins by",
+            "recovering more payments.",
+        ]
+
+    lines += [
+        "",
+        "**And this is not an independent check.** `eval.md` §6 measures the same",
+        "`P1` -> `P4` contrast as its engagement axis, where the very same figure is a",
+        "*problem*: LinkedIn cut volume and lost engagement, this arm cuts volume and",
+        "gains it, which is the wrong direction. One number, passing Adyen's magnitude",
+        "test and failing LinkedIn's direction test, and both readings are correct.",
+        "",
+        "`eval.md` §6.2 also shows it is the **most parameter-sensitive figure in this",
+        "project**: it is governed by `intervention.backfire_first_ask`, which has no",
+        "public measurement, and it changes sign across that parameter's swept range. So",
+        "this section's verdict is a verdict at the shipped parameter, not a robust one.",
+        "`limitations.md` §1 and §2.1 carry that forward.",
+    ]
+    return lines
+
+
 def _curve_reading(sweeps: list[sweep.ArmSweep]) -> list[str]:
     """The prose for section 3, derived the same way and for the same reason."""
     best = max(sweeps, key=lambda s: s.gain_over_floor_inr)
@@ -430,7 +529,13 @@ def main() -> int:
             "",
             "---",
             "",
-            "## 5. What this does and does not show",
+            "## 5. The sanity check against Adyen (T3.10)",
+            "",
+            *_sanity_reading(ladder),
+            "",
+            "---",
+            "",
+            "## 6. What this does and does not show",
             "",
             *_arm_caveats(ladder),
             "* **Expectations, not samples.** Every mandate carries a survival probability rather",

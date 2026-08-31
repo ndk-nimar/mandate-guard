@@ -504,23 +504,77 @@ by making the decision variable `(mandate, channel, week)`.
   excluded from it for the same reason it broke T3.4's bracket, and it costs ~50s a run —
   so it is in the ladder and deliberately out of the sweeps.
 
-- [ ] **T3.9 — `eval/holdout.py` — Meta's identification design.** A 50% random-drop
+- [x] **T3.9 — `eval/holdout.py` — Meta's identification design.** A 50% random-drop
   holdout matching `P(active|do(send)) − P(active|do(drop))`. You cannot run this in
   production, but building the harness in that shape is the serious answer to "how would
   you validate this?"
   **Done when:** the harness supports a random-drop arm.
+  **Done:** `eval/holdout.py`, 16 tests, `docs/eval.md` §9. `RandomDrop` wraps *any* arm
+  rather than being a seventh one — there is no "the holdout policy", only a holdout
+  applied to one.
+  **The headline is the gap between the two contrasts, on one run of one arm:**
+  | contrast | effect |
+  |---|---:|
+  | naive: contacted vs untouched | **−0.1852** |
+  | holdout: sent vs withheld | **+0.0039** |
+  Same allocator, same book, same run. Report it one way and the system destroys 18.5% of
+  retention; report it the other and it adds a little. The allocator contacts the mandates
+  most likely to die, so the contacted group is sicker *before* anything is sent — that is
+  selection measured, not asserted, and it is the clearest argument in the document for
+  why the design is not ceremony. It is also the number a notification dashboard shows.
+  **The second finding is about the pilot, not the allocator.** Over 8 independent draws
+  of the assignment the effect is +0.0128 with a spread of 0.0142 — **a ratio of 0.9, so
+  the correctly-designed experiment cannot detect its own effect.** P4 selects only 107
+  mandates, so each arm holds ~53. Standard error falls with √n, so a pilot needs roughly
+  **521 selected mandates (≈5x)** before it could distinguish its result from zero. Worth
+  knowing before running a pilot rather than after; carries into T3.10.
+  Two design points: the coin is flipped **inside the policy's own selections**, not across
+  the book (otherwise the control group fills with mandates nobody would have contacted and
+  the estimate dilutes toward zero); and assignment is a salted `hashlib` hash of the
+  mandate id — **never the builtin `hash()`**, which Python salts per process, so the
+  experiment would have been irreproducible in the one way nothing flags, since a slightly
+  different number every run is exactly what a noisy experiment looks like. Its salt
+  differs from the sample's, per the bug `data/sample.py` records.
+  Uncertainty is a **randomisation distribution**, not a standard error: the harness carries
+  expectations, so given an assignment the outcome is fixed and the assignment is the only
+  random object in the design. `RunMetrics` gained `alive_by_mandate` — a contrast between
+  two groups cannot be read off an aggregate that already summed across the split.
 
-- [ ] **T3.10 — `docs/limitations.md`, written now, not at the end.** Include the Adyen
+- [x] **T3.10 — `docs/limitations.md`, written now, not at the end.** Include the Adyen
   sanity check in your own words: Adyen's contextual bandit beats a fixed retry schedule by
   ~6%, the most trustworthy public number in payments. If your simulator claims 40%, that
   is a red flag, not a result. Doubting your own number is the highest-credibility move
   available.
   **Done when:** committed, and it names the three things needed before production — real
   India mandate data, an intervention holdout, and a shadow-mode merchant pilot.
+  **Done:** `docs/limitations.md`, seven sections. The three production gates are §6.1–§6.3,
+  each carrying a measured requirement rather than an intention: the holdout is already built
+  (§6.2) and the pilot has a **minimum size** (§6.3, ~521 selected mandates from `eval.md` §9).
+  **The Adyen check is generated, not typed** — `results.md` §5, so it re-runs in CI and will
+  flip its own verdict if a parameter change pushes the lift into red-flag territory.
+  **What the check found is not what it was meant to find.** The comparable figure is `P4`
+  against `P1` (Adyen contrasts adaptive against *fixed active*, not against doing nothing),
+  and it is **+7.42%** against Adyen's ~6% — passing. Then two problems surfaced:
+  * That is the **same contrast** `eval.md` §6.1 already reports as its engagement axis,
+    where it is a **failure** (LinkedIn lost 1.8%, we gain 7.4% — the wrong direction). One
+    number, passing one external check and failing another, both readings correct. Writing
+    only the flattering one would have put two of this project's own documents in direct
+    contradiction.
+  * It is governed by `intervention.backfire_first_ask`, which runs the lift from −0.2% to
+    **+36.5%** across its swept range — so at the top of the sweep the check *fails*. The
+    verdict holds at the shipped parameter and is not robust to it.
+  **And that parameter is not in `calibration.md` §4**, although `eval.md` §6.2 cites §4 as
+  its origin. The register of unsourced constants was missing the constant the headline turns
+  on; it is now §2.1 of `limitations.md`, ranked first.
+  **Two documentation bugs fixed on the way:** `eval.md` had §6.2 duplicated verbatim (24
+  lines, an unnumbered copy above the numbered one), and `results.md`'s old §5 is now §6.
 
 > **GATE 3 — PASSED.** The six-arm chart exists (`results.md` §2: P0–P5, none cut) and
 > theta prints as a real rupee number — INR 4.5626 at the tightest binding budget on the
 > sample book, agreeing with CBC's LP dual to 0.00% (`eval.md` §4). Both halves met.
+>
+> **Phase 3 is closed:** T3.1–T3.10 all done, no task cut. Cut #1 (T3.8 P5 Whittle) was
+> offered and not taken.
 
 **Interleaved reading (~5h):** MCKP and LP duality (3h, P1, **before T3.3**) · ARMMAN
 AAAI 2022 Whittle index (2h, P2, before T3.8).
