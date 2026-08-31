@@ -33,7 +33,7 @@ from mandateguard.allocator.theta_search import ThetaSearch, ThetaSolution
 from mandateguard.allocator.whittle import WhittleIndex, WhittleSolver, horizon_from
 from mandateguard.data.cancel import RENEWAL_TOLERANCE_DAYS
 from mandateguard.data.paths import ROOT, frame_dir, spill_dir
-from mandateguard.eval import forecast, segments, shape, world
+from mandateguard.eval import forecast, holdout, segments, shape, world
 from mandateguard.models import DecisionKind, MandateWeek
 from mandateguard.policy.loader import Params, load_params
 from mandateguard.risk import hazard, scoring
@@ -492,6 +492,34 @@ def format_planning(book: list[world.BookMandate], params: Params, budget_inr: f
     return "\n".join(lines)
 
 
+HOLDOUT_SALTS = [f"holdout-{draw}" for draw in range(8)]
+"""Independent draws of the assignment. Eight is enough to see whether the estimate
+depends on which half was held out, and cheap: each draw is one more run of the arm."""
+
+
+def format_holdout_section(book: list[world.BookMandate], params: Params, budget_inr: float) -> str:
+    """T3.9 -- the identification design, and the wrong number it exists to beat."""
+
+    def arm() -> MCKPPolicy:
+        return MCKPPolicy(params, with_theta=False)
+
+    plain = world.run(book, arm(), params, budget_inr)
+    naive = holdout.naive_contrast(plain)
+    estimates = holdout.spread(book, params, arm, budget_inr, HOLDOUT_SALTS)
+    return "\n".join(
+        [
+            "## The holdout (T3.9)",
+            "",
+            f"`{plain.arm}` over {params.horizon.weeks} weeks at INR {budget_inr:,.2f} per "
+            "week, with half of the asks it chose to make withheld at random. Assignment "
+            "is a salted hash of the mandate id, so the split is reproducible without an "
+            "RNG (ADR 0003).",
+            "",
+            holdout.format_holdout(estimates, naive, HOLDOUT_SALTS),
+        ]
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", action="store_true", help="use the sample-derived frame")
@@ -544,6 +572,8 @@ def main() -> int:
     print(format_segments(book, params, top))
     print()
     print(format_planning(book, params, top))
+    print()
+    print(format_holdout_section(book, params, top))
     return 0
 
 

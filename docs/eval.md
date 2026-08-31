@@ -12,6 +12,8 @@ document -- our result against LinkedIn's published one -- and it is the one thi
 fails. Section 7 (T3.7) is the second external check, against Pinterest's inverted U, and
 it is a negative result that was predicted from the value function before it was measured.
 Section 8 (T3.8) is the sixth arm and what its extra formulation actually bought.
+Section 9 (T3.9) builds the experiment that would be needed to believe any of it, and finds
+that a pilot this size could not detect its own effect.
 
 Reproduce with:
 
@@ -617,30 +619,6 @@ And retention moves the **wrong way**: +7.4% here against LinkedIn's -1.8%. Cutt
 
 There is a coherent reading and it is not a flattering one. LinkedIn's marginal notification was worth roughly nothing -- they dropped two thirds of their volume and lost 1.8% of sessions, which is what near-zero value looks like. In this model the marginal ask is worth *less* than nothing, because backfire makes contacting a healthy mandate actively harmful. So the reference arm is not merely wasteful here, it is destructive, and declining to do what it does shows up as a gain.
 
-### Does any backfire rate reproduce it?
-
-`intervention.backfire_first_ask` has no public measurement (`calibration.md` §4). LinkedIn's triple is the only external observation this project has that the parameter *should* be able to reproduce, so the obvious question is which value does. The twelfth-ask rate moves with the first, holding the ten-to-one ladder `problem.md` §5.1 gives.
-
-| backfire (1st ask) | volume | engagement | complaints | distance from LinkedIn |
-|---:|---:|---:|---:|---:|
-| 0.00000 | -91.3% | -0.2% | -- | 0.1419 |
-| 0.00005 | -91.3% | -0.2% | -97.9% | 0.2646 |
-| 0.00010 | -91.4% | -0.1% | -97.9% | 0.2651 |
-| 0.00030 | -91.5% | +0.2% | -97.6% | 0.2652 |
-| 0.00060 | -91.6% | +0.6% | -97.6% | 0.2669 |
-| 0.00100 | -92.5% | +1.1% | -97.8% | 0.2724 |
-| 0.00300 | -98.1% | +3.6% | -99.1% | 0.3035 |
-| 0.00600 **(shipped)** | -99.3% | +7.4% | -99.7% | 0.3225 |
-| 0.01200 | -99.8% | +15.8% | -99.9% | 0.3526 |
-| 0.02500 | -100.0% | +36.5% | -100.0% | 0.4226 |
-
-**No value of backfire reproduces LinkedIn's shape.**
-At 0.00000 neither arm causes a single revocation, so the complaints axis has no baseline and those rows are scored over two axes rather than three. Their distance is therefore *not* comparable with the others and they are excluded from the comparison below -- a row that wins by dropping the axis we are furthest off on has not won anything.
-Among the 9 rows scored on all three axes the closest is 0.00005, at a distance of 0.2646, and even there the volume cut is -91.3% against LinkedIn's -64.5%.
-The distance rises monotonically with backfire across the whole sweep, so the closest fit is at the bottom of the range and lowering backfire further only runs into the degenerate rows above. **The mismatch is not a backfire value we have mis-set: turning backfire down does not close it.** That rules out the one explanation this project had a knob for, which is worth more than a fitted value would have been.
-
-What backfire *does* control is the engagement axis. At the shipped 0.00600 retention moves +7.4%; at the bottom of the sweep it moves -0.2%, which is LinkedIn's direction. So the wrong-way retention number is a consequence of an unmeasured parameter and is the most parameter-sensitive figure in this project -- not an independent finding about allocation.
-
 ### 6.2 Does any backfire rate reproduce it?
 
 `intervention.backfire_first_ask` has no public measurement (`calibration.md` §4). LinkedIn's triple is the only external observation this project has that the parameter *should* be able to reproduce, so the obvious question is which value does. The twelfth-ask rate moves with the first, holding the ten-to-one ladder `problem.md` §5.1 gives.
@@ -883,3 +861,107 @@ bisection steps, 108 at 16 and 109 at 24. Every one of those looks like a result
 that moves with a stopping rule is not one, and the fix -- a per-mandate bracket seeded
 from the value of acting at `lambda = 0` -- is what makes the figures above stable from six
 halvings onward. It is pinned as a test.
+
+
+---
+
+## 9. The holdout (T3.9) -- done
+
+Sections 4 through 8 compare arms **inside the simulator**. That answers "which allocator
+does better in this model" and cannot answer "does the model resemble the world", because
+the simulator grades its own homework: the harness applies the same uplift and backfire the
+arms optimise against, so an arm that games those numbers is rewarded for doing so.
+
+The only design that escapes the circle is a holdout. Meta's notification work states the
+estimand plainly:
+
+```
+effect = P(active | do(send)) - P(active | do(drop))
+```
+
+`do(...)` and not a conditional. The contrast is between two *interventions*, and it is
+identified because assignment was random -- not because the two groups happen to look
+alike.
+
+This cannot be run here in the sense that matters: there is no live merchant and no real
+mandate book. What can be built is the **harness in that shape**, which is the serious
+answer to "how would you validate this?" -- and, as it turns out, an answer to a question
+nobody asked yet, which is whether a pilot this size could detect anything at all.
+
+Two design choices are worth stating before the numbers.
+
+**The coin is flipped inside the selection, not across the book.** Dropping half of all
+mandates would fill the control group with rows the policy was never going to contact,
+diluting the estimate with observations that carry no information about the intervention.
+So the policy selects as usual, and then half of *what it chose to send* is withheld. That
+is also the only holdout a merchant would agree to.
+
+**Assignment is a salted hash of the mandate id, not a draw.** ADR 0003 wants byte-identical
+reruns, and an RNG whose state must be threaded through every caller is exactly what
+`data/sample.py` refused for the same reason. It uses `hashlib` and never the builtin
+`hash()`, which Python salts per process -- that would make the experiment irreproducible in
+the one way nothing would flag, since a slightly different number every run is precisely
+what a noisy experiment is supposed to look like. The salt differs from the sample's, or
+holdout membership would be correlated with sample membership and the experiment would be
+quietly stratified.
+
+Reproduce with:
+
+```
+uv run python scripts/run_theta.py --sample
+```
+
+### 9.1 The two contrasts
+
+`P4` over 12 weeks at INR 67.70 per week, with half of the asks it chose to make withheld
+at random.
+
+| contrast | treated | control | P(alive) treated | P(alive) control | effect |
+|---|---:|---:|---:|---:|---:|
+| naive: contacted vs untouched | 107 | 1,247 | 0.7274 | 0.9126 | **-0.1852** |
+| holdout: sent vs withheld | 52 | 55 | 0.7266 | 0.7227 | **+0.0039** |
+
+**The naive contrast has the wrong sign, and it is not close.** It reports the system destroying 18.5% of retention; the randomised contrast on the same run reports it adding 0.4%. Nothing about the allocator differs between those two numbers -- only which comparison was made.
+
+The mechanism is the whole reason the design exists: the allocator contacts the mandates most likely to die, so the contacted group is sicker *before* anything is sent. Reading that gap as an effect measures the selection rule, not the intervention. This is the number a notification dashboard shows.
+
+**The randomisation distribution, over 8 independent draws of the assignment.** The harness carries expectations rather than samples, so given one assignment the outcome is fixed and there is no sampling error to quote. The assignment is the only random object in the design, so re-drawing it is the honest uncertainty here.
+
+| draw | treated | control | effect |
+|---|---:|---:|---:|
+| `holdout-0` | 52 | 55 | +0.0039 |
+| `holdout-1` | 58 | 49 | +0.0194 |
+| `holdout-2` | 51 | 56 | +0.0053 |
+| `holdout-3` | 50 | 57 | +0.0272 |
+| `holdout-4` | 47 | 60 | -0.0050 |
+| `holdout-5` | 53 | 54 | +0.0187 |
+| `holdout-6` | 52 | 55 | +0.0345 |
+| `holdout-7` | 66 | 41 | -0.0012 |
+| **mean** | | | **+0.0128** |
+| **spread (sd)** | | | **0.0142** |
+
+**And the experiment cannot detect its own effect.** The mean is +0.0128 against a spread of 0.0142 -- a ratio of 0.9, where roughly 2 is the least you would want before calling an effect distinguishable from zero. On this book the allocator selects only 107 mandates, so each arm of the experiment holds about 53.
+
+That is a **result about the pilot, not about the allocator**. Standard error falls with the square root of the population, so reaching a ratio of 2 needs roughly **521 selected mandates** -- around 5x this book's selected population. A merchant pilot sized like this one would return a number indistinguishable from zero however well the system worked, and that is worth knowing before running it rather than after.
+
+
+### 9.2 What this section establishes
+
+**The naive contrast is not merely imprecise, it has the wrong sign.** Same allocator, same
+run, same book: report it one way and the system destroys 18.5% of retention, report it the
+other and it adds a little. That gap is the single clearest argument in this document for
+why the design matters, and it is measured here rather than asserted.
+
+**The correctly-designed experiment still cannot detect the effect**, because the allocator
+selects only ~107 mandates and each arm of the experiment therefore holds about 53. The
+mean effect is smaller than the spread across assignments. That is a statement about the
+*pilot*, not about the allocator, and it converts directly into a requirement: a shadow-mode
+pilot needs roughly five times this selected population before it could distinguish its own
+result from zero. `docs/limitations.md` (T3.10) carries that forward.
+
+**Neither number is evidence that the system works.** Both are computed inside the same
+simulator, against the same swept uplift and backfire parameters that §6 already showed
+cannot reproduce LinkedIn's published shape. What §9 demonstrates is that the *measurement
+apparatus* is built correctly and that its power is known. The estimate it produces is only
+as good as the world model underneath it, and that world model is `calibration.md` §4's
+list of unmeasured constants.

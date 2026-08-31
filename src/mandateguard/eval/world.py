@@ -111,6 +111,14 @@ class RunMetrics(BaseModel):
     budget_spent_inr: float
     channel_cost_inr: float
 
+    alive_by_mandate: dict[str, float] = {}
+    """Each mandate's survival weight at the end of the horizon.
+
+    T3.9 needs this and nothing else does. A holdout estimate is a *contrast between two
+    groups of mandates*, and the aggregate `mandates_retained` cannot express one -- it has
+    already summed across exactly the split the design turns on.
+    """
+
     asks_by_mandate: dict[str, int] = {}
     """How many asks each mandate received over the whole horizon.
 
@@ -312,6 +320,10 @@ def run(
         revocations_natural=revocations_natural,
         budget_spent_inr=budget_spent,
         channel_cost_inr=channel_cost,
+        alive_by_mandate={
+            m.mandate_id: state[m.mandate_id].alive
+            for m in sorted(book, key=lambda e: e.mandate_id)
+        },
         # Sorted, because this ends up in a committed PNG and ADR 0003 asks for bytes.
         asks_by_mandate={
             m.mandate_id: state[m.mandate_id].asks for m in sorted(book, key=lambda e: e.mandate_id)
