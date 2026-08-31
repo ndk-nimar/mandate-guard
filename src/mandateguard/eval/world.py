@@ -111,6 +111,16 @@ class RunMetrics(BaseModel):
     budget_spent_inr: float
     channel_cost_inr: float
 
+    asks_by_mandate: dict[str, int] = {}
+    """How many asks each mandate received over the whole horizon.
+
+    T3.7 needs this and nothing else does: Pinterest's inverted-U is a claim about how
+    contacts are *distributed across a population*, and the aggregate counts above cannot
+    express a distribution. Populated always rather than behind a flag, because a second
+    code path is a second thing that can drift (`docs/seekha.md` #45) and 1,354 integers
+    is not a cost worth branching over.
+    """
+
     @property
     def retention_rate(self) -> float:
         return self.mandates_retained / self.mandates if self.mandates else 0.0
@@ -299,6 +309,10 @@ def run(
         revocations_natural=revocations_natural,
         budget_spent_inr=budget_spent,
         channel_cost_inr=channel_cost,
+        # Sorted, because this ends up in a committed PNG and ADR 0003 asks for bytes.
+        asks_by_mandate={
+            m.mandate_id: state[m.mandate_id].asks for m in sorted(book, key=lambda e: e.mandate_id)
+        },
     )
 
 

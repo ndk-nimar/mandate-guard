@@ -440,12 +440,33 @@ by making the decision variable `(mandate, channel, week)`.
   sentence, and the honest headline stays the rupee gain over doing nothing (₹212), not a
   retention percentage. Carries into T3.10.
 
-- [ ] **T3.7 — Segment plot (Pinterest's testable prediction).** Pinterest found an
+- [x] **T3.7 — Segment plot (Pinterest's testable prediction).** Pinterest found an
   inverted-U: the most active *and* the most dormant users got the fewest messages. Your
   allocator should give the healthiest and the most doomed mandates the fewest asks. If it
   does, that is independent validation. If it does not, explain it. Either way the plot
   ships.
   **Done when:** the plot is in `docs/eval.md`.
+  **Done:** `eval/segments.py`, 12 tests, `docs/eval.md` §7, `docs/img/segments.png`.
+  **It does not.** We get a **threshold**, not an inverted U — eight of ten hazard buckets
+  (80% of the book) receive zero asks, then 0.074 and 0.728 asks per mandate. Strictly
+  monotone, checked at 25 buckets as well as 10 in case a U was hiding in the top decile.
+  **The explanation was written before the measurement, not after it.** The gain from an
+  ask is `alive·(1−b)·h·uplift·efficacy·L_lapse` — *linear in h* — while the backfire cost
+  does not involve `h` at all. So the value of asking only ever rises with risk and the
+  rule is structurally a threshold. Pinterest's right-hand tail needs a falling *response
+  probability* at the dormant end; here `efficacy_prior` belongs to the **channel** and is
+  identical for every mandate, so a mandate three days from expiry and one certain to lapse
+  are assumed equally persuadable. That is the honest modelling gap this plot exposes, and
+  it goes to T3.10 as the second-named thing the model is missing.
+  The one candidate for bending the curve down was `alive` (it scales gain and backfire but
+  not cost). Measured: the top decile's mean hazard is 0.02512/week so **73.7%** of it
+  survives the horizon — the survival weight never collapses, against a gain 8.9x larger at
+  the top than the bottom.
+  Two process notes. `world.RunMetrics` gained `asks_by_mandate` — a distribution cannot be
+  read off aggregate counts. And the first draft of §7.3 typed "around 0.06", "roughly half"
+  and "50x", all read off the top bucket's **range midpoint** instead of its members' mean;
+  the range is 0.01667–0.09673 and skewed, so the midpoint is nowhere near it. Caught by
+  going to compute them. They are generated now.
 
 - [ ] **T3.8 — [CUT #1] P5 `WhittleIndex`.** Multi-period restless bandit over
   `(mandate, channel, week)`, 12-week horizon, per-week budgets, binary search on the

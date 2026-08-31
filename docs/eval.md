@@ -9,7 +9,8 @@ independent algorithms so that the headline rupee number is evidence rather than
 Section 5 is what that price is for (T3.5): deciding one mandate at a time, without the
 solver, and what that shape costs. Section 6 (T3.6) is the only *external* check in this
 document -- our result against LinkedIn's published one -- and it is the one this project
-fails.
+fails. Section 7 (T3.7) is the second external check, against Pinterest's inverted U, and
+it is a negative result that was predicted from the value function before it was measured.
 
 Reproduce with:
 
@@ -674,3 +675,108 @@ end, which is what an Indian re-consent population *is* -- the whole premise of
 `problem.md` is a wave of mandates hitting expiry together. KKBox at this snapshot is not
 that population, and `mapping.md` §3.9 already says the book is a bridge rather than the
 thing itself. This section is that caveat arriving with a number attached.
+
+
+---
+
+## 7. Asks by risk segment (T3.7) -- done
+
+Pinterest (KDD 2018) reported an **inverted U**: their optimiser sent the fewest
+notifications to the *most active* users and to the *most dormant* ones, concentrating on
+the middle. Both ends for different reasons -- the most active do not need a nudge, and the
+most dormant will not answer one.
+
+The analogue here is the hazard axis. If our allocator independently produced the same
+curve, that would be external validation of a kind nothing else in this project offers.
+
+### 7.1 What the value function allows, before any data
+
+This is worth settling first, because the answer bounds the result before the book is
+involved. One ask on a mandate with hazard `h`:
+
+```
+prevented = alive * (1 - b) * (h - h_eff)   where  h_eff = h * (1 - uplift * efficacy)
+          = alive * (1 - b) * h * uplift * efficacy
+value     = prevented * L_lapse  -  alive * b * L_revocation  -  fatigue  -  k[c]
+```
+
+The gain is **linear in `h`**. The backfire cost does not involve `h` at all. So within a
+single week the value of asking is monotonically increasing in hazard, and the decision
+rule is a **threshold** -- ask everybody above a cut-off. There is no `h` so large that an
+ask becomes worthless again.
+
+**The right half of Pinterest's curve therefore cannot come from the pricing.** Pinterest
+had a mechanism this model does not: their most dormant users had a lower *response
+probability*, so the uplift itself decayed at the far end. Here `efficacy_prior` is a
+property of the **channel** and is identical for every mandate -- a mandate three days from
+expiry and one certain to lapse are assumed equally persuadable.
+
+One candidate remained. `alive` scales both the gain and the backfire but not `fatigue` or
+`k[c]`, so over twelve weeks the doomed die, their survival weight collapses, and asking
+them stops paying. That is a *cumulative* effect rather than an instantaneous one, which is
+why the counts below are per mandate across the whole run rather than from one week.
+
+Whether it is strong enough to bend the curve down is a measurement.
+
+### 7.2 The measurement
+
+Ten equal-count hazard buckets over the book, asks counted across the whole horizon, arm `P4`.
+
+| bucket | mean hazard (low - high) | mandates | asks | asks per mandate |
+|---:|---:|---:|---:|---:|
+| 1 | 0.00113 - 0.00340 | 135 | 0 | 0.000 |
+| 2 | 0.00341 - 0.00464 | 135 | 0 | 0.000 |
+| 3 | 0.00465 - 0.00545 | 136 | 0 | 0.000 |
+| 4 | 0.00545 - 0.00618 | 135 | 0 | 0.000 |
+| 5 | 0.00618 - 0.00676 | 136 | 0 | 0.000 |
+| 6 | 0.00676 - 0.00799 | 135 | 0 | 0.000 |
+| 7 | 0.00800 - 0.00994 | 135 | 0 | 0.000 |
+| 8 | 0.00994 - 0.01273 | 136 | 0 | 0.000 |
+| 9 | 0.01273 - 0.01659 | 135 | 10 | 0.074 |
+| 10 | 0.01667 - 0.09673 | 136 | 99 | 0.728 |
+
+**The busiest bucket is 10 of 10.**
+Asks rise monotonically with hazard: this is a **threshold**, not an inverted U, and it is exactly what the value function predicts. The gain from an ask is linear in `h` and the backfire cost does not involve `h` at all, so within a week the value of asking only ever increases with risk -- there is no hazard so high that an ask stops being worth making.
+
+**Pinterest's right-hand tail requires a mechanism this model does not have.** Their most dormant users were less *responsive*, so the uplift decayed at the far end. Here `efficacy_prior` is a property of the channel, identical for every mandate: a mandate three days from expiry and one certain to lapse are assumed equally persuadable. That is a real modelling gap and it is the honest reading of this plot -- not a result about allocation.
+
+![Asks by risk segment](img/segments.png)
+
+
+Checked at 25 buckets as well as 10, in case an inverted U was hiding inside the top
+decile: the curve is strictly monotone all the way to the busiest bucket. It is not.
+
+### 7.3 What this is and is not
+
+**This is a negative result, and it was predicted before it was run.** `eval/segments.py`
+states the threshold prediction in its docstring, and
+`tests/test_segments.py::test_the_allocator_produces_a_threshold_because_value_is_linear_in_hazard`
+asserts it -- so it is a property of the model that can fail loudly if the model changes,
+rather than an observation rationalised afterwards.
+
+**The `alive` mechanism was not enough, and the reason is the book again.** The top
+decile's mean hazard is **0.02512** per week, so **73.7%** of it is still alive at the end
+of the horizon -- the survival weight never collapses at all, let alone hard enough to
+outweigh a gain that is **8.9x** larger at the top of the range than at the bottom. (The
+bottom decile averages 0.00283 and survives at 96.7%.) On a book of mandates genuinely at
+their coverage end -- the population `problem.md` is actually about -- the right-hand tail
+could appear. This book does not have one, which is the same finding §6 reached from the
+other direction.
+
+Those four figures are the ones worth being careful about: the first draft of this
+paragraph said "around 0.06", "roughly half" and "50x", all read off the *midpoint* of the
+top bucket's range rather than the mean of its members. The range runs 0.01667 to 0.09673
+and the distribution inside it is skewed, so the midpoint is nowhere near the mean. They
+are computed now.
+
+**The honest gap it exposes is `efficacy_prior`.** Treating persuadability as a property of
+the channel and not of the customer is a real simplification, and this plot is where it
+becomes visible. A per-mandate response model is the natural fix and it is not in scope
+before the deadline; it goes to `docs/limitations.md` (T3.10) as the second-named thing the
+model is missing.
+
+**What the plot does support** is narrower and still worth having: the allocator
+concentrates its asks where the risk is, spends nothing on the 80% of the book that is
+nowhere near expiry, and does so without anyone writing a rule that says so. That is the
+threshold falling out of the pricing rather than being configured -- the same way §2 of
+`results.md` got its refusal semantics.

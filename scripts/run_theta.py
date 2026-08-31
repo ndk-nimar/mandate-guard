@@ -30,8 +30,8 @@ from mandateguard.allocator.mckp import MCKPPolicy
 from mandateguard.allocator.serving_rule import OnlineServing
 from mandateguard.allocator.theta_search import ThetaSearch, ThetaSolution
 from mandateguard.data.cancel import RENEWAL_TOLERANCE_DAYS
-from mandateguard.data.paths import frame_dir, spill_dir
-from mandateguard.eval import forecast, shape, world
+from mandateguard.data.paths import ROOT, frame_dir, spill_dir
+from mandateguard.eval import forecast, segments, shape, world
 from mandateguard.models import DecisionKind, MandateWeek
 from mandateguard.policy.loader import Params, load_params
 from mandateguard.risk import hazard, scoring
@@ -346,6 +346,29 @@ def format_shape(book: list[world.BookMandate], params: Params, budget_inr: floa
     )
 
 
+SEGMENT_IMAGE = ROOT / "docs" / "img" / "segments.png"
+
+
+def format_segments(book: list[world.BookMandate], params: Params, budget_inr: float) -> str:
+    """T3.7 -- asks by risk segment, against Pinterest's inverted U. Writes the plot too.
+
+    The plot ships either way, which is what T3.7 asks for. A figure that is only drawn
+    when it agrees with the paper it is being checked against is not evidence.
+    """
+    metrics = world.run(book, MCKPPolicy(params, with_theta=False), params, budget_inr)
+    found = segments.profile(book, metrics)
+    segments.plot(found, SEGMENT_IMAGE)
+    return "\n".join(
+        [
+            "## Asks by risk segment (T3.7)",
+            "",
+            segments.format_profile(found),
+            "",
+            f"![Asks by risk segment](img/{SEGMENT_IMAGE.name})",
+        ]
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", action="store_true", help="use the sample-derived frame")
@@ -394,6 +417,8 @@ def main() -> int:
     print(format_online(book, params, [top * share for share in ONLINE_BUDGET_SHARES]))
     print()
     print(format_shape(book, params, top))
+    print()
+    print(format_segments(book, params, top))
     return 0
 
 
