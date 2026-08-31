@@ -24,12 +24,14 @@ import duckdb
 
 from mandateguard.allocator import candidates as candidate_set
 from mandateguard.allocator import theta_search
+from mandateguard.allocator.base import NoAskPolicy
 from mandateguard.allocator.baselines import bulk_channel
 from mandateguard.allocator.mckp import MCKPPolicy
+from mandateguard.allocator.serving_rule import OnlineServing
 from mandateguard.allocator.theta_search import ThetaSearch, ThetaSolution
 from mandateguard.data.cancel import RENEWAL_TOLERANCE_DAYS
 from mandateguard.data.paths import frame_dir, spill_dir
-from mandateguard.eval import forecast, world
+from mandateguard.eval import forecast, shape, world
 from mandateguard.models import DecisionKind, MandateWeek
 from mandateguard.policy.loader import Params, load_params
 from mandateguard.risk import hazard, scoring
@@ -217,6 +219,133 @@ def format_run(rows: list[Row]) -> str:
     return "\n".join(lines)
 
 
+ONLINE_BUDGET_SHARES = (0.01, 0.035, 0.125, 0.19, 1.0)
+"""Where to compare batch against online, as fractions of a saturating budget.
+
+Spread across the range where the budget goes from binding hard to not binding at all,
+because that is the axis the comparison turns on -- the two agree exactly once the budget
+is slack, and the interesting part is only visible while it binds."""
+
+REFRESH_MODES: tuple[tuple[str, int | None], ...] = (
+    ("held 12 weeks", None),
+    ("every 4 weeks", 4),
+    ("every week", 1),
+)
+"""How often the served price is recalibrated. Not a tuning knob -- the axis of the T3.5
+result. "Held" is the harshest honest setting and "every week" is nearly P4."""
+
+
+def format_online(book: list[world.BookMandate], params: Params, budgets: list[float]) -> str:
+    """T3.5 -- what it costs to decide one mandate at a time, over the full horizon.
+
+    Reported against the **gain over doing nothing**, not against total profit. Total
+    profit is dominated by the mandates nobody was ever going to contact, so every arm
+    scores about 99.99% of every other arm on it and the comparison says nothing. The gain
+    over `P0` is the part any allocator is actually responsible for, and the arms separate
+    by tens of per cent on it.
+    """
+    floor = world.run(book, NoAskPolicy(), params, 0.0)
+    lines = [
+        "## Batch against online (T3.5)",
+        "",
+        f"Full {params.horizon.weeks}-week horizon, {len(book):,} live mandates. "
+        f"`P0` retains INR {floor.profit_inr:,.0f} by contacting nobody; every share below "
+        "is of the **gain over that**, which is the only part an allocator earns.",
+        "",
+        "| budget/week (INR) | arm | price refreshed | asks | spend (INR) | gain over P0 (INR) "
+        "| share of P4's gain | capped |",
+        "|---:|:--|:--|---:|---:|---:|---:|---:|",
+    ]
+    shares: dict[str, list[tuple[float, float]]] = {label: [] for label, _ in REFRESH_MODES}
+    tight: list[float] = []
+    for budget in budgets:
+        batch = world.run(book, MCKPPolicy(params, with_theta=False), params, budget)
+        base = batch.profit_inr - floor.profit_inr
+        lines.append(
+            f"| {budget:,.2f} | `P4` batch | solved each week | {batch.asks_spent:,} "
+            f"| {batch.channel_cost_inr:,.2f} | {base:,.0f} | 100.00% | -- |"
+        )
+        for label, every in REFRESH_MODES:
+            arm = OnlineServing(params, recalibrate_every=every)
+            metrics = world.run(book, arm, params, budget)
+            gain = metrics.profit_inr - floor.profit_inr
+            share = f"{gain / base:.2%}" if base else "--"
+            if base:
+                shares[label].append((budget, gain / base))
+            lines.append(
+                f"| {budget:,.2f} | `P4o` online | {label} | {metrics.asks_spent:,} "
+                f"| {metrics.channel_cost_inr:,.2f} | {gain:,.0f} | {share} "
+                f"| {arm.capped_decisions:,} |"
+            )
+        if batch.budget_spent_inr >= budget * params.horizon.weeks - 1e-9:
+            tight.append(budget)
+
+    fresh = shares[REFRESH_MODES[-1][0]]
+    stale = shares[REFRESH_MODES[0][0]]
+    exact = [budget for budget, share in fresh if share >= 0.9999]
+    lines += ["", "**T3.5's gate.**"]
+    if exact:
+        lines.append(
+            f"With the price refreshed weekly, the online rule reproduces batch `P4` "
+            f"**exactly** at {len(exact)} of {len(fresh)} budgets -- every budget at or "
+            f"above INR {min(exact):,.2f} -- and its worst showing anywhere is "
+            f"{min(share for _, share in fresh):.2%} of the batch gain. Deciding one "
+            "mandate at a time is free once the budget stops being the binding "
+            "constraint, and cheap while it still is."
+        )
+    else:
+        lines.append(
+            "With the price refreshed weekly, the online rule captures between "
+            f"{min(s for _, s in fresh):.2%} and {max(s for _, s in fresh):.2%} of the "
+            "batch gain."
+        )
+    lines += [
+        "",
+        "**What staleness costs.** Holding one price for the whole horizon drops the worst "
+        f"case to {min(share for _, share in stale):.2%} of the batch gain, against "
+        f"{min(share for _, share in fresh):.2%} when it is refreshed weekly. The price is "
+        "the only thing that changed; the rule, the value function and the book are "
+        "identical. So the recalibration schedule is not an operational detail -- on this "
+        "book it is worth more than the choice between batch and online.",
+        "",
+        "**What the online rule can never recover, at any refresh rate.** The residual gap "
+        "is the repair step. T3.4's bisection lands on a step and leaves slack; a greedy "
+        "pass then spends it on the best upgrades that fit -- and that pass ranks every "
+        "mandate's available upgrade against every other's, so it **needs the whole book**. "
+        "An online rule cannot run it by construction. That is not an implementation "
+        "shortfall a better online rule would close: seeing one mandate at a time costs "
+        "exactly the part of the answer that requires seeing them all.",
+    ]
+    return "\n".join(lines)
+
+
+BACKFIRE_RATES = [0.0, 0.00005, 0.0001, 0.0003, 0.0006, 0.001, 0.003, 0.006, 0.012, 0.025]
+"""Where to sweep first-ask backfire when asking which value reproduces LinkedIn's shape.
+
+Spans four orders of magnitude below the shipped 0.006 and two above it, because the
+question is not "is the shipped value slightly off" but "is there any value at all that
+works" -- and a narrow sweep could not answer the second."""
+
+
+def format_shape(book: list[world.BookMandate], params: Params, budget_inr: float) -> str:
+    """T3.6 -- our three deltas against LinkedIn's, and the anchor sweep behind them."""
+    triple, before, after = shape.compare(book, params, budget_inr)
+    return "\n".join(
+        [
+            "## The shape, against LinkedIn's (T3.6)",
+            "",
+            shape.format_comparison(triple, before, after, budget_inr),
+            "",
+            "### Does any backfire rate reproduce it?",
+            "",
+            shape.format_anchor(
+                shape.anchor(book, params, budget_inr, BACKFIRE_RATES),
+                params.intervention.backfire_first_ask,
+            ),
+        ]
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sample", action="store_true", help="use the sample-derived frame")
@@ -261,6 +390,10 @@ def main() -> int:
     print()
     rows = [compare(params, view, budget, args.week) for budget in ladder(top)]
     print(format_run(rows))
+    print()
+    print(format_online(book, params, [top * share for share in ONLINE_BUDGET_SHARES]))
+    print()
+    print(format_shape(book, params, top))
     return 0
 
 

@@ -78,6 +78,8 @@ that. That is the `(mandate, channel, week)` decision variable, and it is T3.8's
 
 from __future__ import annotations
 
+import math
+
 from pydantic import BaseModel, Field
 
 from mandateguard.allocator import candidates as candidate_set
@@ -217,6 +219,17 @@ def select(candidates: list[Candidate], theta: float) -> dict[str, Candidate]:
 def spend_at(candidates: list[Candidate], theta: float) -> float:
     """What the Lagrangian selection costs at this price. The function being inverted."""
     return sum(c.cost_inr for c in select(candidates, theta).values())
+
+
+def _round_up(value: float, decimals: int) -> float:
+    """Round away from zero, so a published price never buys more than it was checked for.
+
+    `round()` would go to nearest, which lands below the true crossing about half the
+    time -- and below the crossing, candidates the bisection had priced out come back in
+    and the spend can exceed the budget. Rounding up only ever removes candidates.
+    """
+    scale = 10.0**decimals
+    return math.ceil(value * scale) / scale
 
 
 def _ratios(candidates: list[Candidate]) -> list[float]:
@@ -380,13 +393,26 @@ class ThetaSearch:
             else:
                 high = middle
 
-        chosen = select(candidates, high)
+        # Round the price FIRST, then select at the price that will actually be published.
+        # The other order is a trap: `chosen` would be the selection at the full-precision
+        # bracket while `theta_inr` carried a rounded number, so anyone re-deriving the
+        # allocation from the published price -- which is exactly what T3.5's online rule
+        # does -- would get a different answer from the one reported here. Two files
+        # disagreeing about one piece of arithmetic is the recurring bug in this project
+        # (`docs/seekha.md` #45), and publishing a price that does not reproduce its own
+        # selection is that bug in its purest form.
+        #
+        # Rounded *up*, never to nearest. A higher price can only drop candidates, so the
+        # selection shrinks and the budget stays respected. Rounding down would admit
+        # candidates the bisection had excluded and could push the spend over the cap.
+        theta = _round_up(high, THETA_DECIMALS)
+        chosen = select(candidates, theta)
         upgrades = 0
         if self.repair:
             chosen, upgrades = _repair(candidates, chosen, budget_inr)
 
         solution = ThetaSolution(
-            theta_inr=round(high, THETA_DECIMALS),
+            theta_inr=theta,
             binding=True,
             chosen=chosen,
             budget_inr=budget_inr,

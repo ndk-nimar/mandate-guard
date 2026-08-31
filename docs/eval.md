@@ -6,6 +6,10 @@ number it has to beat was fixed before anyone knew what it would produce. Sectio
 the hazard model (T1.7) and GATE 1. Section 3 is calibration (T1.8), which is where the
 model's honest weakness is. Section 4 is the shadow price (T3.4), computed twice by two
 independent algorithms so that the headline rupee number is evidence rather than output.
+Section 5 is what that price is for (T3.5): deciding one mandate at a time, without the
+solver, and what that shape costs. Section 6 (T3.6) is the only *external* check in this
+document -- our result against LinkedIn's published one -- and it is the one this project
+fails.
 
 Reproduce with:
 
@@ -405,7 +409,6 @@ So the gate is a property of the **instance**, not of the algorithm. It is met w
 
 **Against the exact solve.** The search plus its greedy repair captures 99.901% of CBC's integer optimum at worst, with no solver anywhere in the loop. A Lagrangian relaxation landing this close to branch-and-cut is the result T3.5's online rule is built on: if the price is right, mandates can be decided one at a time.
 
-
 ### 4.2 What this section is not
 
 **One week, not a horizon.** Everything above prices week 0 with nobody yet contacted --
@@ -435,3 +438,239 @@ leftover on the best upgrades that still fit. It is switchable, and it is kept s
 that the two claims stay separable: the **unrepaired** theta is what should match CBC's
 dual, and the **repaired** allocation is what should approach CBC's integer answer.
 Netting them into one number would make a disagreement in either impossible to locate.
+
+
+---
+
+## 5. Batch against online (T3.5) -- done
+
+§4's theta is a number. This section is what the number is *for*.
+
+`P4` answers "who gets asked this week" by putting the whole book in front of a solver.
+That is the right way to get the answer and the wrong shape for production: a live system
+is handed **one** mandate -- a webhook fires, a customer opens the app -- and has to answer
+inside a request, with no idea what the rest of the book will look like by Friday.
+
+LinkedIn (KDD 2016) shipped the resolution, and §4 already built its engine. Once the
+budget is priced at theta, the coupling is gone and the decision is a per-item threshold
+test:
+
+```
+ask through c  iff   mu * P(re-consent) * L_lapse
+                   - nu * P(revoke) * L_revocation
+                   - fatigue
+                   - k[c]
+                   - theta * k[c]     > 0
+```
+
+The first four terms are `value/price.py` -- the same four-term price `P3` and `P4` use,
+unchanged. The fifth is the only new thing, and it is one multiplication.
+
+Two properties make this a real equivalence rather than a resemblance, and both are tests:
+
+* At the same theta with the spend meter never binding, the online rule reproduces the
+  batch Lagrangian selection **exactly** -- mandate for mandate, channel for channel.
+* At `theta = 0` the fifth term vanishes and the rule collapses to the four-term threshold
+  LinkedIn published. The budget-aware rule *contains* the budget-free one.
+
+`P4o` is a **variant of `P4`, not a sixth rung on the ladder.** The ladder's rungs each
+change what the allocator knows; this changes nothing about that. It is `P4`'s value
+function and `P4`'s price, applied without the solver.
+
+Reproduce with:
+
+```
+uv run python scripts/run_theta.py --sample
+```
+
+### 5.1 What one-at-a-time costs
+
+Full 12-week horizon, 1,354 live mandates. `P0` retains INR 413,219 by contacting nobody; every share below is of the **gain over that**, which is the only part an allocator earns.
+
+| budget/week (INR) | arm | price refreshed | asks | spend (INR) | gain over P0 (INR) | share of P4's gain | capped |
+|---:|:--|:--|---:|---:|---:|---:|---:|
+| 0.68 | `P4` batch | solved each week | 57 | 7.20 | 80 | 100.00% | -- |
+| 0.68 | `P4o` online | held 12 weeks | 45 | 2.05 | 47 | 58.63% | 6 |
+| 0.68 | `P4o` online | every 4 weeks | 49 | 3.75 | 58 | 71.61% | 14 |
+| 0.68 | `P4o` online | every week | 48 | 4.20 | 62 | 76.82% | 0 |
+| 2.37 | `P4` batch | solved each week | 83 | 23.50 | 157 | 100.00% | -- |
+| 2.37 | `P4o` online | held 12 weeks | 45 | 6.55 | 81 | 51.65% | 3 |
+| 2.37 | `P4o` online | every 4 weeks | 71 | 17.55 | 137 | 86.85% | 9 |
+| 2.37 | `P4o` online | every week | 83 | 22.75 | 154 | 98.07% | 0 |
+| 8.46 | `P4` batch | solved each week | 104 | 36.40 | 208 | 100.00% | -- |
+| 8.46 | `P4o` online | held 12 weeks | 74 | 25.90 | 174 | 83.92% | 0 |
+| 8.46 | `P4o` online | every 4 weeks | 96 | 33.60 | 199 | 95.75% | 0 |
+| 8.46 | `P4o` online | every week | 104 | 36.40 | 208 | 100.00% | 0 |
+| 12.86 | `P4` batch | solved each week | 109 | 39.80 | 212 | 100.00% | -- |
+| 12.86 | `P4o` online | held 12 weeks | 109 | 39.80 | 212 | 100.00% | 0 |
+| 12.86 | `P4o` online | every 4 weeks | 109 | 39.80 | 212 | 100.00% | 0 |
+| 12.86 | `P4o` online | every week | 109 | 39.80 | 212 | 100.00% | 0 |
+| 67.70 | `P4` batch | solved each week | 109 | 39.80 | 212 | 100.00% | -- |
+| 67.70 | `P4o` online | held 12 weeks | 109 | 39.80 | 212 | 100.00% | 0 |
+| 67.70 | `P4o` online | every 4 weeks | 109 | 39.80 | 212 | 100.00% | 0 |
+| 67.70 | `P4o` online | every week | 109 | 39.80 | 212 | 100.00% | 0 |
+
+**T3.5's gate.**
+With the price refreshed weekly, the online rule reproduces batch `P4` **exactly** at 3 of 5 budgets -- every budget at or above INR 8.46 -- and its worst showing anywhere is 76.82% of the batch gain. Deciding one mandate at a time is free once the budget stops being the binding constraint, and cheap while it still is.
+
+**What staleness costs.** Holding one price for the whole horizon drops the worst case to 51.65% of the batch gain, against 76.82% when it is refreshed weekly. The price is the only thing that changed; the rule, the value function and the book are identical. So the recalibration schedule is not an operational detail -- on this book it is worth more than the choice between batch and online.
+
+**What the online rule can never recover, at any refresh rate.** The residual gap is the repair step. T3.4's bisection lands on a step and leaves slack; a greedy pass then spends it on the best upgrades that fit -- and that pass ranks every mandate's available upgrade against every other's, so it **needs the whole book**. An online rule cannot run it by construction. That is not an implementation shortfall a better online rule would close: seeing one mandate at a time costs exactly the part of the answer that requires seeing them all.
+
+### 5.2 The guarantee this rule does not have
+
+`P4` cannot overspend: the budget is a constraint inside its model. The online rule has no
+model. It decides each mandate alone, so nothing stops a book richer than the calibration
+book from spending past the cap -- and the harness raises `BudgetExceeded` rather than
+clipping, correctly, because an over-spending arm is a different experiment rather than a
+slightly worse one.
+
+So the serving path carries a **spend meter**, which is what real systems carry. When the
+channel the rule wants no longer fits, it falls back to the best one that does -- usually
+the free `in_app` -- and records that it was capped. Both answers are computed, the wanted
+and the allowed, because the difference is the diagnosis: a rule quietly sending in-app
+notes because the money ran out looks identical, from the outside, to a rule that judged
+in-app the right channel.
+
+The cap rate in the table above is therefore not an implementation detail. It is the
+measurement of how wrong the served price was, and it is highest exactly where the held
+price is most stale.
+
+### 5.3 What this section does not show
+
+**The arrival order is the book's order, which is not a real arrival order.** Mandates are
+walked by `mandate_id`, so the spend meter runs down in an order that has nothing to do
+with when customers would actually appear. A real deployment meets them in traffic order,
+which correlates with engagement, which correlates with value -- and that correlation could
+help or hurt. This harness cannot say which, and no public dataset here contains arrival
+times, so it is logged in `docs/limitations.md` rather than estimated.
+
+**One book, one horizon.** Everything above is the committed sample at one set of swept
+parameters. The staleness result in particular is a property of how fast *this* book moves;
+a book with faster churn would punish a held price harder.
+
+
+---
+
+## 6. The shape, against LinkedIn's (T3.6) -- done
+
+Everything up to here is internal. §4 checked theta against another algorithm, §5 checked
+online against batch -- both are this project marking its own homework. This section is the
+one external check available, and it is the one this project **fails**.
+
+LinkedIn published three numbers when they replaced send-everything-eligible with an
+optimiser (KDD 2016): volume **-64.5%**, sessions **-1.8%**, complaints **-47%**. The
+triple is useful for its *shape* rather than its magnitudes -- send far less, lose almost
+none of what the sends were for, cut the harm a lot.
+
+The mapping is stated rather than assumed:
+
+| LinkedIn | here | why |
+|---|---|---|
+| notification volume | asks sent | the thing being rationed |
+| sessions | mandates retained | the thing the sends exist to protect |
+| complaints | revocations *caused by an ask* | the harm the sends do |
+
+`revocations_caused`, never `revocations_natural`: a mandate the customer would have killed
+anyway is not a complaint about being contacted, and the harness keeps the two apart for
+exactly this reason.
+
+The reference arm is `P1 ChronologicalCap` at a saturating budget -- contact everyone,
+every week. LinkedIn's "before" was their own production system sending to everyone
+eligible, and `P1` is the campaign-tool default a merchant would actually be running today.
+
+> **The triple's own citation does not close, and that is stated before it is used.**
+> [`calibration.md`](./calibration.md) §5 lists these three numbers and sends the reader to
+> `prior_art.md` for the exact claim and page reference. **That document has never been
+> written** -- it is a Phase 5 deliverable, and [`problem.md`](./problem.md) links to it
+> too, so both links are dead today. These numbers therefore reach the code from this
+> project's own build plan, and `CLAUDE.md` §3 is explicit that a build plan is not a
+> source.
+>
+> It does not sink this section, because the finding below is a **mismatch** and the gap is
+> 35 percentage points on volume plus a sign flip on retention -- not something a
+> transcription slip could manufacture. But the triple must not be quoted as verified until
+> somebody has read it out of the paper. `calibration.md` §6 now carries that as a job.
+
+Reproduce with:
+
+```
+uv run python scripts/run_theta.py --sample
+```
+
+### 6.1 The three deltas
+
+Reference `P1` against challenger `P4`, same book, same 12-week horizon, at a budget of
+INR 67.70 per week -- enough for one bulk ask per mandate per week, so the reference
+contacts everybody and the budget never binds on it.
+
+| axis | LinkedIn (KDD 2016) | here | reference | challenger |
+|---|---:|---:|---:|---:|
+| volume (asks) | -64.5% | -99.3% | 16,236 | 109 |
+| engagement (mandates retained) | -1.8% | +7.4% | 1,131.9 | 1,215.9 |
+| complaints (revocations caused) | -47.0% | -99.7% | 90.55 | 0.28 |
+
+**The direction agrees on the axes that matter.** Far fewer asks, far fewer revocations caused. That is the shape T3.6 asked for, and it is the weak claim.
+
+**The magnitude does not.** This allocator cuts volume by 99.3% where LinkedIn cut it by 64.5% -- 1.5 times as deep.
+And retention moves the **wrong way**: +7.4% here against LinkedIn's -1.8%. Cutting asks is not supposed to *raise* the thing the asks were for.
+
+There is a coherent reading and it is not a flattering one. LinkedIn's marginal notification was worth roughly nothing -- they dropped two thirds of their volume and lost 1.8% of sessions, which is what near-zero value looks like. In this model the marginal ask is worth *less* than nothing, because backfire makes contacting a healthy mandate actively harmful. So the reference arm is not merely wasteful here, it is destructive, and declining to do what it does shows up as a gain.
+
+### 6.2 Does any backfire rate reproduce it?
+
+`intervention.backfire_first_ask` has no public measurement (`calibration.md` §4). LinkedIn's triple is the only external observation this project has that the parameter *should* be able to reproduce, so the obvious question is which value does. The twelfth-ask rate moves with the first, holding the ten-to-one ladder `problem.md` §5.1 gives.
+
+| backfire (1st ask) | volume | engagement | complaints | distance from LinkedIn |
+|---:|---:|---:|---:|---:|
+| 0.00000 | -91.3% | -0.2% | -- | 0.1419 |
+| 0.00005 | -91.3% | -0.2% | -97.9% | 0.2646 |
+| 0.00010 | -91.4% | -0.1% | -97.9% | 0.2651 |
+| 0.00030 | -91.5% | +0.2% | -97.6% | 0.2652 |
+| 0.00060 | -91.6% | +0.6% | -97.6% | 0.2669 |
+| 0.00100 | -92.5% | +1.1% | -97.8% | 0.2724 |
+| 0.00300 | -98.1% | +3.6% | -99.1% | 0.3035 |
+| 0.00600 **(shipped)** | -99.3% | +7.4% | -99.7% | 0.3225 |
+| 0.01200 | -99.8% | +15.8% | -99.9% | 0.3526 |
+| 0.02500 | -100.0% | +36.5% | -100.0% | 0.4226 |
+
+**No value of backfire reproduces LinkedIn's shape.**
+At 0.00000 neither arm causes a single revocation, so the complaints axis has no baseline and those rows are scored over two axes rather than three. Their distance is therefore *not* comparable with the others and they are excluded from the comparison below -- a row that wins by dropping the axis we are furthest off on has not won anything.
+Among the 9 rows scored on all three axes the closest is 0.00005, at a distance of 0.2646, and even there the volume cut is -91.3% against LinkedIn's -64.5%.
+The distance rises monotonically with backfire across the whole sweep, so the closest fit is at the bottom of the range and lowering backfire further only runs into the degenerate rows above. **The mismatch is not a backfire value we have mis-set: turning backfire down does not close it.** That rules out the one explanation this project had a knob for, which is worth more than a fitted value would have been.
+
+What backfire *does* control is the engagement axis. At the shipped 0.00600 retention moves +7.4%; at the bottom of the sweep it moves -0.2%, which is LinkedIn's direction. So the wrong-way retention number is a consequence of an unmeasured parameter and is the most parameter-sensitive figure in this project -- not an independent finding about allocation.
+
+
+### 6.3 Reading the mismatch
+
+The direction agrees and the magnitude does not, and the anchor sweep rules out the one
+explanation this project had a knob for. So the residual explanation is the **book**, and
+it is visible one section up in this document: §1 reports a median projected hazard of
+about **0.0016 per week**. The overwhelming majority of mandates in this book are nowhere
+near their coverage end, so no ask on them is worth its cost at any backfire rate, and an
+allocator that prices asks correctly declines almost all of them. LinkedIn's population sat
+far closer to the margin -- which is why two thirds of their volume could go while
+engagement barely moved, rather than nine tenths.
+
+Two consequences, and neither is comfortable.
+
+**This is not LinkedIn-shaped validation and must not be presented as one.** "Our result
+matches a published industry result" would be false. What is true is narrower: the
+*direction* matches on volume and complaints, the magnitudes are far more extreme, and the
+retention axis points the wrong way at the shipped parameters. `docs/limitations.md` (T3.10)
+carries this, and the pitch does not get the stronger sentence.
+
+**A -99.3% volume cut is a claim about the book, not an achievement.** An allocator that
+declines 99.3% of possible asks on a book where 99.3% of asks are worthless has done its
+job, and the number says more about the mandate population at this snapshot than about the
+optimiser. The honest headline stays the rupee gain over doing nothing, which §5 puts at
+INR 212 -- small, and ours.
+
+### 6.4 What would change this
+
+The one test that would settle it is a book with mandates genuinely near their coverage
+end, which is what an Indian re-consent population *is* -- the whole premise of
+`problem.md` is a wave of mandates hitting expiry together. KKBox at this snapshot is not
+that population, and `mapping.md` §3.9 already says the book is a bridge rather than the
+thing itself. This section is that caveat arriving with a number attached.

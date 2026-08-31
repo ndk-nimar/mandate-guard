@@ -382,16 +382,63 @@ by making the decision variable `(mandate, channel, week)`.
   marginal rupee can be worth *more* than before. Both are pinned as tests, because the
   second looks exactly like a convergence bug and is not one.
 
-- [ ] **T3.5 — `allocator/serving_rule.py` — LinkedIn's online rule.** The LP-dual per-item
+- [x] **T3.5 — `allocator/serving_rule.py` — LinkedIn's online rule.** The LP-dual per-item
   threshold test `mu·P(re-consent) − nu·P(revoke) − cost > 0`, so mandates can be decided
   one at a time without re-solving the knapsack. **The batch-vs-online comparison is itself
   a result** — report both.
   **Done when:** the online rule reproduces batch MCKP within a stated tolerance.
+  **Done:** `allocator/serving_rule.py`, 33 tests, and `docs/eval.md` §5 reports both.
+  `P4o` is a **variant of P4, not a sixth rung** — same value function, same price, no
+  solver. The tolerance, stated: with the price refreshed weekly it reproduces batch P4
+  **exactly** at every budget from ₹8.46 up, and its worst showing anywhere is **76.82%**
+  of P4's gain over doing nothing. Reported against the *gain*, never against total
+  profit — on total profit every arm scores 99.99% of every other and the comparison says
+  nothing.
+  Two equivalences make it a real reproduction rather than a resemblance, and both are
+  tests: at the same theta with the meter never binding the online rule reproduces the
+  batch Lagrangian selection **exactly**, and at `theta = 0` it collapses to the plain
+  four-term LinkedIn threshold — so the budget-aware rule *contains* the budget-free one.
+  Three findings. **Staleness costs more than the batch/online choice does**: one price
+  held twelve weeks captures 51.65% of the gain at worst against 76.82% refreshed weekly,
+  with the rule, the value function and the book identical. **The residual gap is the
+  repair step, and it is unrecoverable at any refresh rate** — the greedy fill ranks every
+  mandate's upgrade against every other's, so it needs the whole book; seeing one mandate
+  at a time costs exactly the part of the answer that needs to see them all. And T3.4 had
+  a **silent** defect this surfaced: `ThetaSolution` published a *rounded* theta beside a
+  selection computed at the *unrounded* bracket, so re-deriving the allocation from the
+  published price — which is precisely what this arm does — returned a different, dearer
+  basket. Nothing raised. Rounding is now applied before selection, and upward, so the
+  published price can only ever drop candidates and the budget stays respected.
 
-- [ ] **T3.6 — Sanity check the shape.** LinkedIn's published shape: volume −64.5%,
+- [x] **T3.6 — Sanity check the shape.** LinkedIn's published shape: volume −64.5%,
   sessions only −1.8%, complaints −47%. Your result should have the same shape — far fewer
   asks, slightly less retention. If it does not, something is wrong.
   **Done when:** the three deltas are printed and compared in `docs/eval.md`.
+  **Done:** `eval/shape.py`, 12 tests, `docs/eval.md` §6. **This is the check the project
+  fails, and it is the most valuable section in the document.**
+  | axis | LinkedIn | here |
+  |---|---:|---:|
+  | volume | −64.5% | **−99.3%** |
+  | engagement | −1.8% | **+7.4%** |
+  | complaints | −47% | **−99.7%** |
+  Direction agrees on volume and complaints. Magnitude does not, and retention moves the
+  **wrong way** — cutting asks is not supposed to *raise* the thing the asks were for.
+  The obvious suspect was backfire, so `anchor()` sweeps it over four orders of magnitude
+  and asks which value reproduces LinkedIn's triple. **None does.** Distance rises
+  monotonically with backfire and the closest comparable fit still cuts volume 91.3%.
+  Turning the one knob we had does not close the gap — a negative result worth more than
+  a fitted value would have been. (Rows where neither arm causes a revocation are scored
+  on two axes not three, so they are excluded from "closest": a row that wins by dropping
+  the axis we are furthest off on has not won anything.)
+  What backfire *does* control is the retention axis — +7.4% shipped, −0.2% at the bottom
+  of the sweep, which is LinkedIn's direction. So the wrong-way number is a consequence of
+  an unmeasured parameter, not an independent finding.
+  The residual explanation is the **book**: §1's median projected hazard is 0.0016/week, so
+  almost no ask is worth its cost at any backfire rate. **A −99.3% volume cut is a claim
+  about the book, not an achievement.** Two consequences now binding on the rest of the
+  project: this is *not* LinkedIn-shaped validation and the pitch does not get that
+  sentence, and the honest headline stays the rupee gain over doing nothing (₹212), not a
+  retention percentage. Carries into T3.10.
 
 - [ ] **T3.7 — Segment plot (Pinterest's testable prediction).** Pinterest found an
   inverted-U: the most active *and* the most dormant users got the fewest messages. Your

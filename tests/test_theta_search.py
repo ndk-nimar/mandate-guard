@@ -324,6 +324,30 @@ def test_whatever_the_budget_leaves_unspent_could_not_have_been_spent(budget):
     )
 
 
+@pytest.mark.parametrize("budget", BINDING_BUDGETS)
+def test_the_published_theta_reproduces_its_own_selection(budget):
+    """A price that does not buy the basket it was reported with is not a price.
+
+    This failed once and silently. `theta_inr` was rounded to six decimals while `chosen`
+    was computed at the full-precision bracket, so re-deriving the allocation from the
+    published number -- which is exactly what T3.5's online rule does -- gave a *different*
+    and more expensive answer, because rounding down lets candidates back in that the
+    bisection had priced out. Nothing raised; the two just quietly disagreed.
+
+    Rounding up fixes it, and the direction matters: a higher price only ever removes
+    candidates, so the selection shrinks and the budget stays respected.
+    """
+    params = load_params()
+    entries = pairs(params, book(), budget)
+    solution = ThetaSearch(repair=False).search(entries, budget)
+
+    rederived = theta_search.select(entries, solution.theta_inr)
+    assert {m: c.channel for m, c in rederived.items()} == {
+        m: c.channel for m, c in solution.chosen.items()
+    }
+    assert sum(c.cost_inr for c in rederived.values()) <= budget + 1e-9
+
+
 def test_the_repair_never_moves_the_price():
     """Repair changes the allocation, not the price. If it moved theta, the number this
     project publishes would depend on a greedy tidy-up rather than on the dual, and the

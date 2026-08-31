@@ -250,3 +250,12 @@ this project *asserts*, and those are numbers it *cites*.
 3. Drop the unverified "card post-2021 failure 20%+" claim wherever it appears, or source
    it (§5).
 4. Settle the transition-period question from the circular text during T4.1 (§1).
+5. **Write [`prior_art.md`](./prior_art.md), or stop linking to it.** §5 above sends every
+   prior-art number there for its exact claim and page reference, and
+   [`problem.md`](./problem.md) links to it as well — but the file has never existed. So
+   the citation chain for LinkedIn's −64.5% / −1.8% / −47%, Pinterest's inverted U,
+   Chrome's quiet-UI result, Duolingo's half-life, ARMMAN's Whittle arm and Adyen's ~6%
+   currently terminates in two dead links, and those numbers reach the code from this
+   project's own build plan. §3 of `CLAUDE.md` is explicit that this does not count as a
+   source. Most load-bearing of the six is the LinkedIn triple, which `eval.md` §6 now
+   compares every result against.
