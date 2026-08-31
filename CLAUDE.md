@@ -14,6 +14,12 @@ Read [`docs/tasks.md`](docs/tasks.md) for what is being built and in what order,
 journals.** They are the learning layer, and they are the first thing that gets skipped
 when a session runs long, which is exactly why the rule is written down.
 
+**Write them without being asked, and without asking.** Closing a task means the journals
+are already written, not that they are ready to be written once someone confirms. Do not
+offer the update as a next step, do not ask whether to do it, and do not report a task as
+finished with the entry still pending -- the entry is part of finishing it. The only
+acceptable reason to defer is that the task itself is not done yet.
+
 | file | what goes in it | shape |
 |---|---|---|
 | [`docs/worklog.md`](docs/worklog.md) | what happened this session: decisions taken, bugs found, numbers that came out, what is still open, what is next | one `# Session N` heading, then `##` sections |
@@ -36,7 +42,7 @@ Three things the journals must contain, because they are what makes them worth k
   line is a diary entry, not a lesson.
 
 If a session covers several tasks, one `# Session N` entry covering all of them is fine.
-What is not fine is moving to the next phase with the journals a phase behind.
+What is not fine is moving to the next task with the journals a task behind.
 
 ---
 
