@@ -217,9 +217,11 @@ them.
 
 ## 5. What this does and does not show
 
-* **The arms are not yet ours.** `P4` (multiple-choice knapsack) and `P5` (Whittle
-  index) are Phase 3. `P3` is the strongest arm here and it is a sort.
-* **`theta` is null everywhere.** The shadow price comes from the LP dual in `P4`.
+* **`P4` is ours; the rest are not.**
+  `P5` (Whittle index) is still Phase 3. The best arm on profit here is `P4`.
+* **`theta` is zero, not missing.** The LP dual exists and prices the budget
+  at nothing, because the constraint is slack here and the next rupee buys
+  nothing. `eval.md` §4 prices the budgets where it does bind.
 * **Expectations, not samples.** Every mandate carries a survival probability rather
   than a sampled outcome, so these are mean results with no variance attached. The
   harness cannot answer "how often does this policy do worse than doing nothing".

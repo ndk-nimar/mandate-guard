@@ -4,7 +4,8 @@ What each model in this project scores, on what, and against what. Section 1 is 
 naive baselines (T1.6), which are scored *before* the real model exists so that the
 number it has to beat was fixed before anyone knew what it would produce. Section 2 is
 the hazard model (T1.7) and GATE 1. Section 3 is calibration (T1.8), which is where the
-model's honest weakness is.
+model's honest weakness is. Section 4 is the shadow price (T3.4), computed twice by two
+independent algorithms so that the headline rupee number is evidence rather than output.
 
 Reproduce with:
 
@@ -12,6 +13,7 @@ Reproduce with:
 uv run python scripts/build_periods.py --sample   # the frame, from the committed sample
 uv run python scripts/score_baseline.py --sample  # section 1
 uv run python scripts/fit_hazard.py --sample --plot   # sections 2 and 3
+uv run python scripts/run_theta.py --sample       # section 4
 ```
 
 Drop `--sample` for the full 58M-row frame. The numbers below are the full run; the
@@ -321,3 +323,115 @@ is already a SQL expression and a monotone rescale is another one. It is not in 
 it needs a third slice carved out of the split, which changes every number in §1 and §2,
 and GATE 1 is passed without it. It is logged in `docs/limitations.md` as the first thing
 to do if the allocator's rupee numbers are taken seriously.
+
+---
+
+## 4. The shadow price, computed twice (T3.4) -- done
+
+Section 2 asked whether the hazard model can rank mandates. This one asks what a rupee of
+ask budget is *worth*, and it answers with two independent algorithms so that the number
+is evidence rather than output.
+
+`allocator/mckp.py` (T3.3) gets theta the textbook way: hand the LP relaxation to CBC and
+read the dual off the budget constraint. That is correct and it does not scale -- it needs
+a solver process, it needs the whole book in one model, and it cannot answer "should I
+contact *this* mandate" without re-solving everything.
+
+`allocator/theta_search.py` (T3.4) gets the same number with no solver at all, by
+Lagrangian relaxation:
+
+```
+L(theta) = max_x  sum (profit[i,c] - theta * k[c]) * x[i,c]  +  theta * B
+```
+
+Price the budget at theta rupees per rupee and the budget constraint disappears from the
+problem. What is left separates completely: every mandate picks the channel with the best
+`profit - theta * cost` and asks only if that is positive, referring to no other mandate.
+The coupling that made this a knapsack now lives entirely in one scalar, so the whole
+allocation reduces to finding that scalar -- a **hill-climb** to a bracket followed by a
+**bisection** inside it. This is Pinterest's design (KDD 2018), and it is why they could
+run volume control over hundreds of millions of users.
+
+Bisection is only legitimate on a monotone function, and this one is monotone provably
+rather than empirically. Each mandate's reduced value is an upper envelope of straight
+lines with slopes `-k[c]`; as theta rises the argmax moves to flatter lines, which is to
+say to *cheaper* channels, and eventually below zero. A mandate can only ever get cheaper
+as theta rises, so the total can only fall. The bracket is analytic too: above the largest
+theta at which any paid ask still beats its mandate's free fallback, nothing paid is
+selected and the spend is zero.
+
+Reproduce with:
+
+```
+uv run python scripts/run_theta.py --sample
+```
+
+### 4.1 What the two algorithms found
+
+**1,354 live mandates.** The ladder tops out at INR 67.70 -- one `email` ask for every mandate, which is where the budget stops binding.
+
+| budget (INR) | binding | theta (search) | theta (CBC dual) | steps | spend (INR) | budget used | asks | paid asks | value (INR) | vs exact | left on table |
+|---:|:--|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 0.68 | yes | 4.5626 | 4.5626 | 48 | 0.65 | 96.01% | 15 | 3 | 9.86 | 100.0000% | 0 |
+| 1.03 | yes | 3.8752 | 3.8752 | 48 | 1.00 | 97.18% | 15 | 4 | 11.32 | 100.0000% | 0 |
+| 1.56 | yes | 3.4955 | 3.4955 | 48 | 1.55 | 99.11% | 15 | 5 | 13.43 | 100.0000% | 0 |
+| 2.38 | yes | 3.3969 | 3.3969 | 56 | 2.35 | 98.86% | 15 | 9 | 16.00 | 99.9005% | 0 |
+| 3.61 | yes | 3.1659 | 3.1659 | 56 | 3.60 | 99.64% | 15 | 12 | 20.20 | 100.0000% | 0 |
+| 5.49 | yes | 1.9638 | 1.9638 | 54 | 5.40 | 98.34% | 16 | 16 | 24.41 | 100.0000% | 0 |
+| 8.35 | yes | 0.7127 | 0.7127 | 52 | 8.05 | 96.45% | 23 | 23 | 28.15 | 100.0000% | 0 |
+| 12.69 | yes | 0.1336 | 0.1336 | 46 | 12.50 | 98.54% | 31 | 31 | 30.35 | 100.0000% | 0 |
+| 19.28 | no | 0.0000 | 0.0000 | 0 | 12.85 | 66.65% | 32 | 32 | 30.39 | 100.0000% | 0 |
+| 29.31 | no | 0.0000 | 0.0000 | 0 | 12.85 | 43.85% | 32 | 32 | 30.39 | 100.0000% | 0 |
+| 44.54 | no | 0.0000 | 0.0000 | 0 | 12.85 | 28.85% | 32 | 32 | 30.39 | 100.0000% | 0 |
+| 67.70 | no | 0.0000 | 0.0000 | 0 | 12.85 | 18.98% | 32 | 32 | 30.39 | 100.0000% | 0 |
+
+**T3.4's gate: convergence.**
+All 8 binding budgets converged. The slowest took 56 steps of a 64-step cap, closing its bracket to INR 6.3e-13 -- machine precision, not the cap.
+
+**T3.4's gate: the +-2% fit.**
+**Met at 5 of 8 binding budgets, and missed at 3** (INR 0.68, INR 1.03, INR 8.35), the worst by 3.99% against a gate of 2%.
+
+**Every miss is optimal, and that is checked rather than asserted.** Across those budgets, 0 profitable asks would have fit in the unspent slack at the converged price. An allocation can leave money unspent for two opposite reasons -- it gave up early, or it ran out of things worth buying -- and they look identical from the outside. Here it is the second, at every budget, so no allocator (CBC included) could have spent the rest:
+
+| budget (INR) | fit | unspent (INR) | cheapest ask (INR) | why the rest stayed |
+|---:|---:|---:|---:|:--|
+| 0.68 | 96.01% | 0.03 | 0.15 | the leftover is smaller than any ask |
+| 1.03 | 97.18% | 0.03 | 0.15 | the leftover is smaller than any ask |
+| 8.35 | 96.45% | 0.30 | 0.35 | the leftover is smaller than any ask |
+
+So the gate is a property of the **instance**, not of the algorithm. It is met wherever the budget is large relative to the value of the asks still left to buy, and the rows above are where this book is not.
+
+**Against CBC.** The searched theta and the LP dual agree to within 0.00% at worst across 8 binding budgets. They are not obliged to agree exactly: the relaxation may take fractional asks, so its dual sits somewhere inside the flat step that the integer selection holds across, while the bisection converges on that step's left edge. Both are valid prices for the same budget.
+
+**Against the exact solve.** The search plus its greedy repair captures 99.901% of CBC's integer optimum at worst, with no solver anywhere in the loop. A Lagrangian relaxation landing this close to branch-and-cut is the result T3.5's online rule is built on: if the price is right, mandates can be decided one at a time.
+
+
+### 4.2 What this section is not
+
+**One week, not a horizon.** Everything above prices week 0 with nobody yet contacted --
+no fatigue, no accumulated backfire. That is deliberately the easiest week to price, and a
+theta measured mid-horizon would be entangled with whatever the arm did in the weeks
+before it. The search itself does not care: hand it one week's pairs and that week's
+budget and theta is a weekly price; hand it the whole horizon's pairs and `weeks * budget`
+and it is the horizon-wide price. What it cannot do either way is **plan** -- moving an
+ask from this week into a later one changes that mandate's own state, and a static
+candidate set cannot express that. That is the `(mandate, channel, week)` decision
+variable, and it is T3.8's job.
+
+**theta is not comparable across budgets unless the menu is.** `candidates.build` drops
+any channel costing more than the whole budget -- correctly, since a INR 0.10 weekly
+budget cannot buy a INR 0.15 SMS for anybody. So widening the budget does two opposite
+things at once: it buys more asks, which pushes theta down, and it unlocks dearer, more
+effective rungs, which pushes theta *up*, because the marginal rupee can now buy a better
+thing than it could before. On the 100-mandate fixture the second effect wins between
+INR 0.10 and INR 0.20 and theta rises from about 38 to about 42. Held at a fixed menu,
+theta is monotone in the budget as a shadow price must be; allowed to move, it is not.
+Both are pinned as tests in `tests/test_theta_search.py`, because the zig-zag looks
+exactly like a convergence bug and is not one.
+
+**The repair is a separate step on purpose.** The bisection lands on a step of a step
+function, and that step is rarely flush with the budget; a greedy pass then spends the
+leftover on the best upgrades that still fit. It is switchable, and it is kept separate so
+that the two claims stay separable: the **unrepaired** theta is what should match CBC's
+dual, and the **repaired** allocation is what should approach CBC's integer answer.
+Netting them into one number would make a disagreement in either impossible to locate.

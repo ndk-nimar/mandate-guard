@@ -65,32 +65,13 @@ not the budget.
 from __future__ import annotations
 
 import pulp
-from pydantic import BaseModel
 
+from mandateguard.allocator import candidates as candidate_set
 from mandateguard.allocator.base import Policy
+from mandateguard.allocator.candidates import THETA_DECIMALS, Candidate
 from mandateguard.models import AllocationResponse, Decision, DecisionKind, MandateWeek
 from mandateguard.policy.loader import Params
-from mandateguard.value.price import AskPrice, Pricer
-
-THETA_DECIMALS = 6
-"""Decimal places kept on the published shadow price.
-
-CBC stops at a tolerance, not at an exact optimum, so the last digits of a dual are a
-property of the solver's stopping rule rather than of the book -- the same reasoning that
-rounds the hazard model's coefficients (`risk/hazard.py`), and the same gate behind it:
-GATE 2 asks for a byte-identical `results.md`, and theta is printed in it."""
-
-
-class Candidate(BaseModel):
-    """One `(mandate, channel)` pair that is worth putting in front of the solver."""
-
-    model_config = {"frozen": True}
-
-    mandate_id: str
-    channel: str
-    profit_inr: float
-    cost_inr: float
-    price: AskPrice
+from mandateguard.value.price import Pricer
 
 
 class MCKPPolicy(Policy):
@@ -111,35 +92,11 @@ class MCKPPolicy(Policy):
         keeps it on, because that is where theta is published."""
 
     def candidates(self, book: list[MandateWeek], budget_inr: float) -> list[Candidate]:
-        """Every affordable pair worth asking, in a fixed order.
-
-        Pairs that lose money are dropped before the solver sees them. That is not an
-        optimisation shortcut -- a maximiser would never select a negative coefficient
-        anyway -- but it shrinks the model by more than an order of magnitude on this
-        book, because most mandates in a live book are nowhere near their coverage end.
-
-        The order is `(mandate_id, channel)`, fixed, because CBC is free to choose any
-        one of several equally-good optima and a model whose variables arrive in a
-        different order each run is free to hand back a different one (ADR 0003).
+        """The pairs this week's solve ranges over. Built by `allocator/candidates.py`,
+        which T3.4's Lagrangian search reads from too -- so "the search reproduces the
+        LP's dual" is a claim about two algorithms rather than about two candidate sets.
         """
-        found = []
-        for entry in sorted(book, key=lambda e: e.mandate_id):
-            for channel in sorted(self.params.channels, key=lambda c: c.name):
-                if channel.cost_inr > budget_inr:
-                    continue
-                price = self.pricer.price(entry, channel)
-                if not price.worth_asking:
-                    continue
-                found.append(
-                    Candidate(
-                        mandate_id=entry.mandate_id,
-                        channel=channel.name,
-                        profit_inr=price.net_inr,
-                        cost_inr=channel.cost_inr,
-                        price=price,
-                    )
-                )
-        return found
+        return candidate_set.build(self.pricer, self.params, book, budget_inr)
 
     def _build(self, candidates: list[Candidate], budget_inr: float, relaxed: bool):
         category = "Continuous" if relaxed else "Binary"

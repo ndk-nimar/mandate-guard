@@ -357,10 +357,30 @@ by making the decision variable `(mandate, channel, week)`.
   so the budget rations *which channel*, not *whether*. That is `problem.md` §5.1's thesis
   falling out of the solver rather than being asserted at it.
 
-- [ ] **T3.4 — `allocator/theta_search.py` — Pinterest's theta.** Hill-climb plus binary
+- [x] **T3.4 — `allocator/theta_search.py` — Pinterest's theta.** Hill-climb plus binary
   search on the shadow price so total asks match the global budget. This is the *algorithm*
   for producing theta, not just the name of it.
   **Done when:** theta converges and total asks land within ±2% of budget.
+  **Done:** `allocator/theta_search.py` plus `allocator/candidates.py`, which T3.3 now
+  shares so the two solvers argue over one candidate set rather than two lookalikes.
+  47 tests, and `scripts/run_theta.py` prints `docs/eval.md` §4.
+  **Convergence: yes** — all 8 binding budgets on the sample book, slowest 56 steps of a
+  64 cap, bracket closed to 1e-13. **The ±2% fit: 5 of 8.** It misses at three budgets,
+  and the miss is *optimal rather than a failure*, which is checked rather than argued:
+  `affordable_upgrades()` reports **zero** profitable asks that would have fit in the
+  unspent slack, so no allocator — CBC included — could have spent it. The gate is a
+  property of the instance, not of the algorithm.
+  The number worth having is the cross-check: the searched theta and CBC's LP dual agree
+  to **0.00%** across all 8 budgets, and the search plus its greedy repair captures
+  **99.901%** of CBC's integer optimum with no solver in the loop. That is what T3.5's
+  online rule stands on.
+  Two things fell out. The bracket was being taken from `profit / cost`, which is the
+  wrong crossing whenever a **free** channel exists: `in_app` never falls with theta, so a
+  paid channel has to beat the fallback rather than beat zero, and the hill-climb was
+  starting above the entire region where anything changes hands. And **theta is not
+  monotone in the budget** — widening it unlocks dearer, more effective rungs, so the
+  marginal rupee can be worth *more* than before. Both are pinned as tests, because the
+  second looks exactly like a convergence bug and is not one.
 
 - [ ] **T3.5 — `allocator/serving_rule.py` — LinkedIn's online rule.** The LP-dual per-item
   threshold test `mu·P(re-consent) − nu·P(revoke) − cost > 0`, so mandates can be decided

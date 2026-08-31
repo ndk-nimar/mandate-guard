@@ -142,6 +142,55 @@ def _knapsack_reading(greedy: world.RunMetrics, knapsack: world.RunMetrics) -> l
     return lines
 
 
+def _arm_caveats(ladder: list[world.RunMetrics]) -> list[str]:
+    """Which arms are on the table, and whether theta is a real number yet.
+
+    Derived, and it has to be. These two bullets were string literals that said "the arms
+    are not yet ours" and "`theta` is null everywhere" -- both true when they were typed,
+    and both still sitting there, contradicting the table directly above them, on the day
+    P4 shipped with a dual in it. A generated document whose numbers come from a run and
+    whose claims come from a literal will eventually say the opposite of itself, which is
+    the failure this whole file exists to prevent.
+    """
+    ours = [m for m in ladder if m.arm in {"P4", "P5"}]
+    best = max(ladder, key=lambda m: m.profit_inr)
+    priced = [m for m in ladder if m.theta_inr is not None]
+
+    if not ours:
+        arms = [
+            "* **The arms are not yet ours.** `P4` (multiple-choice knapsack) and `P5`",
+            "  (Whittle index) are Phase 3.",
+        ]
+    else:
+        names = ", ".join(f"`{m.arm}`" for m in ours)
+        missing = "`P5` (Whittle index) is still Phase 3. " if len(ours) < 2 else ""
+        arms = [
+            f"* **{names} {'is' if len(ours) == 1 else 'are'} ours; the rest are not.**",
+            f"  {missing}The best arm on profit here is `{best.arm}`.",
+        ]
+
+    if not priced:
+        return [
+            *arms,
+            "* **`theta` is null everywhere.** The shadow price comes from the LP dual in `P4`.",
+        ]
+    binding = [m for m in priced if m.theta_inr]
+    if not binding:
+        return [
+            *arms,
+            "* **`theta` is zero, not missing.** The LP dual exists and prices the budget",
+            "  at nothing, because the constraint is slack here and the next rupee buys",
+            "  nothing. `eval.md` §4 prices the budgets where it does bind.",
+        ]
+    return [
+        *arms,
+        f"* **`theta` is INR {max(m.theta_inr or 0.0 for m in binding):,.4f}** at its highest "
+        "here, from the LP",
+        "  dual on the budget constraint. `eval.md` §4 computes the same price a second way,",
+        "  by Lagrangian search, as a check on both.",
+    ]
+
+
 def _curve_reading(sweeps: list[sweep.ArmSweep]) -> list[str]:
     """The prose for section 3, derived the same way and for the same reason."""
     best = max(sweeps, key=lambda s: s.gain_over_floor_inr)
@@ -334,9 +383,7 @@ def main() -> int:
             "",
             "## 5. What this does and does not show",
             "",
-            "* **The arms are not yet ours.** `P4` (multiple-choice knapsack) and `P5` (Whittle",
-            "  index) are Phase 3. `P3` is the strongest arm here and it is a sort.",
-            "* **`theta` is null everywhere.** The shadow price comes from the LP dual in `P4`.",
+            *_arm_caveats(ladder),
             "* **Expectations, not samples.** Every mandate carries a survival probability rather",
             "  than a sampled outcome, so these are mean results with no variance attached. The",
             '  harness cannot answer "how often does this policy do worse than doing nothing".',

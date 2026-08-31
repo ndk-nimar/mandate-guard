@@ -103,6 +103,7 @@ uv run python scripts/build_sample.py          # T1.5  the committed CI slice
 uv run python scripts/score_baseline.py        # T1.6  naive baselines
 uv run python scripts/fit_hazard.py --plot     # T1.7/T1.8  hazard + reliability
 uv run python scripts/run_ladder.py            # T2.1-T2.6  the arms
+uv run python scripts/run_theta.py             # T3.4  theta by search, against the dual
 ```
 
 **`--sample` runs the whole chain on the committed 5,079-subscriber slice in seconds**,
