@@ -1,0 +1,156 @@
+# Dark-pattern phrase checks for generated notices (T4.4).
+#
+# Two different things live in this file and they have different standing.
+#
+# The PATTERNS are a regulator's. The Central Consumer Protection Authority notified the
+# Guidelines for Prevention and Regulation of Dark Patterns, 2023 on 30 November 2023 under
+# the Consumer Protection Act, 2019, prohibiting the thirteen patterns in its Annexure I.
+# `ccpa_pattern` and `definition` below are those patterns and their published definitions.
+#
+# The PHRASES are ours. No regulation lists banned wordings, and no list of wordings could
+# be complete -- this is a *detector*, not a definition, and it will miss a dark pattern
+# written in words nobody thought of. It is here because the alternative is a compliance
+# linter that checks five fields and lets "Don't lose your subscription -- only 2 hours
+# left!" through, which passes every RBI content rule and is two CCPA violations.
+#
+# Matching is case-insensitive on the notice text with whitespace collapsed. Phrases are
+# literal substrings, not regexes: a regex in a file like this is a second language for a
+# reviewer to learn, and every phrase below is meant to be checkable by reading it.
+#
+# Six of the thirteen are checked. The other seven -- basket sneaking, bait and switch,
+# drip pricing, disguised advertisement, SaaS billing, rogue malware -- describe things a
+# notice cannot do to a reader by its wording alone; they are properties of a checkout flow
+# or a billing system, and a text linter claiming to check them would be theatre.
+
+version: 1
+
+source:
+  name: Guidelines for Prevention and Regulation of Dark Patterns, 2023
+  authority: Central Consumer Protection Authority (CCPA), under the Consumer Protection Act, 2019
+  notified_on: 2023-11-30
+  specified_patterns: 13
+  applies_to: >-
+    platforms systemically offering goods or services in India (including foreign
+    platforms), advertisers, and sellers/service providers -- business-to-consumer only
+  retrieved_on: 2026-09-02
+
+patterns:
+  - id: confirm_shaming
+    ccpa_pattern: Confirm shaming
+    definition: >-
+      Using emotionally charged design tactics to create a sense of fear, shame, ridicule or
+      guilt in a user's mind using phrases, videos, audios or any other means, to mislead or
+      guilt-trip a user to perform transactions for the commercial gain of the entity
+      deploying the pattern.
+    why_here: >-
+      A re-consent ask is exactly the shape this pattern takes: the decline option is where
+      the guilt goes. The CCPA's own illustration is an airline labelling the decline "I
+      will stay unsecured".
+    phrases:
+      - "no thanks, i"
+      - "i don't want to save"
+      - "i do not want to save"
+      - "i'll risk"
+      - "i will risk"
+      - "i don't care about"
+      - "i prefer to lose"
+      - "you will lose everything"
+      - "don't you want"
+      - "are you sure you want to lose"
+      - "maybe you don't value"
+
+  - id: false_urgency
+    ccpa_pattern: False urgency
+    definition: >-
+      Creating or implying a false sense of urgency or scarcity to mislead a user into
+      immediately taking an action which may result in a purchase.
+    why_here: >-
+      A pre-debit notice already carries a real deadline -- the debit itself, at least 24
+      hours away under RBI clause 6(a). Any urgency beyond that stated time is manufactured,
+      and the CCPA puts the burden of proving urgency was real on the sender.
+    phrases:
+      - "act now"
+      - "hurry"
+      - "last chance"
+      - "final warning"
+      - "only a few minutes"
+      - "expires in minutes"
+      - "don't miss out"
+      - "limited time offer"
+      - "immediately or"
+      - "before it's too late"
+
+  - id: subscription_trap
+    ccpa_pattern: Subscription trap
+    definition: >-
+      Indirectly forcing users to retain their subscription through various means, such as
+      making the cancellation of a subscription an impossible or complex process, hiding the
+      cancellation option, requiring user to provide payment details or authorisation for
+      auto debit to avail a free subscription, and making instructions for cancelling
+      subscription confusing and cumbersome.
+    why_here: >-
+      This is the one that collides with RBI clause 6(c), which requires an opt-out from
+      "any particular transaction or the e-mandate". A notice that routes the opt-out
+      through a phone queue satisfies neither: the CCPA reads cancellation-by-call against
+      subscription-by-click as a trap, and clause 6(c) wants a facility, not an errand.
+    phrases:
+      - "call our support team to cancel"
+      - "contact customer care to cancel"
+      - "write to us to cancel"
+      - "visit a branch to cancel"
+      - "cancellation requests are processed within"
+      - "email us at least"
+      - "raise a ticket to stop"
+
+  - id: nagging
+    ccpa_pattern: Nagging
+    definition: >-
+      Disrupting or annoying users without their permission through repetitive and
+      persistent requests, information, options or notifications, in order to effectuate a
+      transaction and make commercial gains.
+    why_here: >-
+      The pattern this whole project is about. `docs/problem.md` §5.1 prices repeated asks
+      as backfire and rations them; the CCPA prices them as an unfair trade practice. A
+      notice that announces its own repetition is admitting to the pattern in writing.
+    phrases:
+      - "we will keep reminding you"
+      - "we'll keep reminding you"
+      - "you will continue to receive"
+      - "until you respond"
+      - "we will ask again"
+      - "reminder 3 of"
+      - "final reminder in a series"
+
+  - id: trick_question
+    ccpa_pattern: Trick question
+    definition: >-
+      Deliberately using vague or confusing language to misdirect users from taking desired
+      actions or leading users to take specific actions. These typically use confusing
+      wording or double negatives to trick the user.
+    why_here: >-
+      The CCPA's illustration is a cancellation pop-up offering "continue" and "cancel",
+      where neither word says what it does. An opt-out sentence built on a double negative
+      is the same defect in prose.
+    phrases:
+      - "uncheck this box if you do not want to stop"
+      - "do not opt out unless you do not wish"
+      - "if you would rather not not"
+      - "decline to cancel"
+      - "opt out of opting out"
+
+  - id: interface_interference
+    ccpa_pattern: Interface interference
+    definition: >-
+      Highlighting specific information or obscuring relevant information in order to
+      misdirect users from performing their desired action.
+    why_here: >-
+      In plain text there is no colour or contrast to abuse, so only the wording form is
+      detectable here: burying the opt-out behind a phrase that discourages reading it. The
+      visual form of this pattern is a UI property and is out of a text linter's reach --
+      recorded in docs/limitations.md rather than pretended at.
+    phrases:
+      - "in the unlikely event that you wish"
+      - "should you for some reason"
+      - "if you really must"
+      - "buried in the terms"
+      - "see fine print to stop"

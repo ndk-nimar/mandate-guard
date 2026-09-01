@@ -109,6 +109,51 @@ feature and not merely good engineering.
 **What this is not.** It does not say anything about how often a merchant may contact a
 customer about a *mandate*, and it must not be quoted as if it did.
 
+### 1.3 A second regulator: what a notice may not say
+
+Added 2026-09-02, for T4.4. This one is not the RBI at all, and that is the point: the
+notice this system composes has to satisfy a payments regulator on its *contents* and a
+consumer regulator on its *wording*, and nothing checks both unless something is built to.
+
+**Guidelines for Prevention and Regulation of Dark Patterns, 2023**, notified by the
+**Central Consumer Protection Authority** on **30 November 2023** under the Consumer
+Protection Act, 2019. They prohibit the thirteen patterns listed in Annexure I and apply to
+platforms systemically offering goods or services in India (foreign platforms included),
+advertisers, and sellers/service providers — business-to-consumer only.
+
+| pattern | the CCPA's own definition, abridged | why a pre-debit notice can commit it |
+|---|---|---|
+| Confirm shaming | emotionally charged design creating fear, shame, ridicule or guilt to guilt-trip a user into a transaction | a re-consent ask puts the guilt in the decline option; the CCPA's own illustration is an airline labelling it "I will stay unsecured" |
+| False urgency | creating or implying a false sense of urgency or scarcity | the notice already carries a real deadline at least 24 hours out; anything beyond it is manufactured |
+| Subscription trap | making cancellation impossible or complex, hiding the cancellation option, or making its instructions cumbersome | collides with RBI clause 6(c), which requires an opt-out from the debit *or* the mandate |
+| Nagging | disrupting users through repetitive and persistent requests to effectuate a transaction | this project's own subject: `problem.md` §5.1 prices repeated asks as backfire, and the CCPA prices them as an unfair trade practice |
+| Trick question | vague or confusing language, typically double negatives, misdirecting users | an opt-out sentence built on a double negative |
+| Interface interference | highlighting or obscuring information to misdirect | in plain text, only the wording form is detectable |
+
+**Six of the thirteen are checked.** Basket sneaking, bait and switch, drip pricing,
+disguised advertisement, SaaS billing and rogue malware describe properties of a checkout
+flow or a billing system rather than of a sentence, and a text linter claiming to check them
+would be theatre.
+
+**What is sourced and what is ours.** The patterns and their definitions are the
+regulator's, and they are in `policy/dark_patterns.yaml` with the citation. The **phrase
+lists** that detect them are this project's, they are not exhaustive, and no regulation
+publishes such a list — that file says so in its own header, and `limitations.md` carries
+the consequence: a dark pattern written in words nobody thought of passes the linter.
+
+**One CCPA pattern is a direct hit on this project's own design.** *SaaS billing* —
+"covertly billing users on a recurrent basis without any notifications" — is what the entire
+pre-debit notice regime exists to prevent, and it means the RBI's clause 6 obligation and
+the CCPA's consumer-protection regime are pointed at the same failure from two directions.
+That is a good sentence for the pitch and it is not a number, so it lives here rather than
+in a table.
+
+Sources: [PIB, Ministry of Consumer Affairs, 30 November 2023](https://pib.gov.in/PressReleasePage.aspx?PRID=1983994) ·
+[Trilegal, "Guidelines for Prevention and Regulation of Dark Patterns, 2023", 26 December 2023](https://trilegal.com/wp-content/uploads/2023/12/Guidelines-for-Prevention-and-Regulation-of-Dark-Patterns-2023.pdf)
+— the definitions above are quoted from the second, whose Annexure-I summary was retrieved
+and read on 2026-09-02. The CCPA notification itself was not parsed; same status as §1's
+circular, and for the same reason.
+
 Source: [RBI (Know Your Customer) (Amendment) Directions, 2025, 12 June
 2025](https://pdicai.org/Docs/RBI-2025-26-51_1262025151347878.pdf) ·
 [Saraf & Partners summary](https://sarafpartners.com/rbi-notifies-amendments-to-reserve-bank-of-india-know-your-customer-kyc-directions-2016/)
