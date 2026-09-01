@@ -1,7 +1,12 @@
 """Config and policy loading, with the invariants that matter enforced at load time.
 
-Three rules are enforced here rather than trusted:
+Five rules are enforced here rather than trusted:
   * every policy rule cites a clause (an uncited rule is a hallucinated rule)
+  * every policy rule **quotes** that clause, and the quote has to appear verbatim in the
+    committed circular text -- a citation is a pointer, and a pointer can point at the
+    wrong clause without anything noticing (T4.1)
+  * every rule expression parses under `agent/expression.py`'s whitelist and reads only
+    fields `MandateAuditContext` actually defines
   * the policy file's hash is recoverable, so every ledger entry can pin the exact
     policy version a decision was made under, and `replay` can reproduce it (T5.2)
   * the recovery parameters stay ordered and inside their measured ceiling (T1.2)
@@ -10,6 +15,7 @@ Three rules are enforced here rather than trusted:
 from __future__ import annotations
 
 import hashlib
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -17,11 +23,13 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-from mandateguard.models import Channel, PolicyRule, Rail
+from mandateguard.agent.expression import ExpressionError, referenced_names
+from mandateguard.models import Channel, MandateAuditContext, PolicyRule, Rail
 
 ROOT = Path(__file__).resolve().parents[3]
 PARAMS_PATH = ROOT / "config" / "params.yaml"
 POLICY_PATH = ROOT / "policy" / "mandate_policy.yaml"
+POLICY_DIR = POLICY_PATH.parent
 
 
 class ValueParams(BaseModel):
@@ -206,6 +214,50 @@ def _check_channels(channels: list[Channel]) -> list[Channel]:
     return channels
 
 
+class LLMParams(BaseModel):
+    """The Phase 4 model job's configuration, including what a call is allowed to cost.
+
+    Prices are USD per million tokens and stay USD. The temptation is to print a rupee
+    figure next to every other rupee figure in this project, but no verified USD/INR rate
+    exists here, and `india.ntd_to_inr: 1.0` is a decision about a subscription price
+    ladder rather than an exchange rate -- reusing it would smuggle a fabricated FX rate
+    into a cost headline (CLAUDE.md 3, "no number exists without an origin").
+    """
+
+    model: str
+    max_tokens: int = Field(gt=0)
+    effort: str
+    price_input_usd_per_mtok: float = Field(ge=0)
+    price_output_usd_per_mtok: float = Field(ge=0)
+    price_cache_read_usd_per_mtok: float = Field(ge=0)
+    price_cache_write_usd_per_mtok: float = Field(ge=0)
+    spend_cap_usd_per_run: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _cache_prices_are_the_cheap_and_dear_side(self) -> LLMParams:
+        """A cache read must be cheaper than a fresh read, and a write dearer.
+
+        Inverted, prompt caching would look like a cost *increase* in every report the
+        eval suite produces, and the obvious response -- turning caching off -- would make
+        the real bill go up. The check is here because the numbers are multiples of the
+        input price (0.1x and 1.25x) written out by hand, and a hand-written multiple is
+        exactly the kind of thing that gets transposed.
+        """
+        if self.price_cache_read_usd_per_mtok >= self.price_input_usd_per_mtok:
+            raise ValueError(
+                f"llm.price_cache_read_usd_per_mtok ({self.price_cache_read_usd_per_mtok}) "
+                f"is not below the input price ({self.price_input_usd_per_mtok}); a cache "
+                "read that costs more than a fresh read makes caching look like a loss."
+            )
+        if self.price_cache_write_usd_per_mtok < self.price_input_usd_per_mtok:
+            raise ValueError(
+                f"llm.price_cache_write_usd_per_mtok ({self.price_cache_write_usd_per_mtok}) "
+                f"is below the input price ({self.price_input_usd_per_mtok}); writing to "
+                "the cache carries a premium, not a discount."
+            )
+        return self
+
+
 class Params(BaseModel):
     channels: list[Channel]
     value: ValueParams
@@ -213,6 +265,7 @@ class Params(BaseModel):
     intervention: InterventionParams
     horizon: HorizonParams
     india: IndiaParams
+    llm: LLMParams
     seed: int
 
     @model_validator(mode="after")
@@ -221,10 +274,68 @@ class Params(BaseModel):
         return self
 
 
+class PolicySource(BaseModel):
+    """Where the rules came from, precisely enough to go and check.
+
+    `text_file` and `sha256` together are the mechanism, not the paperwork. The circular
+    text is committed next to the policy, its hash is pinned here, and `load_policy`
+    refuses to load if the two disagree. So the source text cannot be edited to make a rule's
+    quote match: doing that breaks the hash, and the fix is to re-read the circular and
+    re-review the diff, which is exactly the human-in-the-loop step T4.1 is built around.
+    """
+
+    name: str
+    circular_no: str
+    dated: date
+    url: str
+    retrieved_on: date
+    text_file: str = Field(description="path to the committed circular text, relative to policy/")
+    sha256: str = Field(min_length=64, max_length=64)
+    read: bool = Field(description="False until the circular text itself has been read")
+
+
 class Policy(BaseModel):
+    """The compiled rulebook.
+
+    Structural checks live here; the two that need the circular text on disk (quote
+    verbatimness and the source hash) live in `load_policy`, because a Pydantic model does
+    not know which file it was loaded from and should not have to guess.
+    """
+
     version: int
-    source: dict[str, Any]
+    source: PolicySource
     rules: list[PolicyRule]
+
+    @model_validator(mode="after")
+    def _rules_are_unique_and_evaluable(self) -> Policy:
+        ids = [rule.rule_id for rule in self.rules]
+        duplicates = sorted({i for i in ids if ids.count(i) > 1})
+        if duplicates:
+            raise ValueError(
+                f"duplicate rule_id(s) {duplicates}. Rule ids are how a ledger entry names "
+                "the rule that produced a finding (T5.1); two rules sharing one make an "
+                "audit trail that cannot be followed back."
+            )
+
+        known = set(MandateAuditContext.model_fields)
+        for rule in self.rules:
+            checks = (("expression", rule.expression), ("applies_when", rule.applies_when))
+            for field, text in checks:
+                try:
+                    used = referenced_names(text)
+                except ExpressionError as exc:
+                    raise ValueError(
+                        f"rule {rule.rule_id!r} has an illegal {field}: {exc}"
+                    ) from exc
+                unknown = sorted(used - known)
+                if unknown:
+                    raise ValueError(
+                        f"rule {rule.rule_id!r} reads {unknown} in its {field}, which "
+                        "MandateAuditContext does not define. A rule naming a field that "
+                        "does not exist never fires, and a rule that never fires passes "
+                        "every test in the suite."
+                    )
+        return self
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -235,8 +346,93 @@ def load_params(path: Path = PARAMS_PATH) -> Params:
     return Params.model_validate(_read_yaml(path))
 
 
+_CLAUSE_HEADING = re.compile(r"^## (\d+)\.", re.MULTILINE)
+_CLAUSE_NUMBER = re.compile(r"^(\d+)")
+
+
+def _normalise(text: str) -> str:
+    """Collapse whitespace so a YAML-wrapped quote can be compared to a long source line.
+
+    Whitespace only. Punctuation, spelling and casing are left alone on purpose -- clause
+    6(c) of this circular contains "shall provider a customer", and a normaliser that
+    tidied that would let a rule quote a sentence the regulator never wrote.
+    """
+    return " ".join(text.split())
+
+
+def source_text(policy: Policy, policy_dir: Path = POLICY_DIR) -> str:
+    """The committed circular text a policy's rules cite, hash-checked on the way out."""
+    path = policy_dir / policy.source.text_file
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"policy source text {path} is missing. Every rule cites this file; without it "
+            "no citation in mandate_policy.yaml can be checked against anything."
+        )
+    raw = path.read_bytes()
+    digest = hashlib.sha256(raw).hexdigest()
+    if digest != policy.source.sha256:
+        raise ValueError(
+            f"{path.name} hashes to {digest}, but mandate_policy.yaml pins "
+            f"{policy.source.sha256}. Either the circular text was edited after the rules "
+            "were compiled, or the rules were compiled against a different text. Re-read "
+            "the circular, re-run scripts/compile_policy.py, and review the diff -- do not "
+            "update the hash on its own."
+        )
+    return raw.decode("utf-8")
+
+
+def check_rule_citations(rules: list[PolicyRule], text: str, source_name: str) -> None:
+    """Every rule cites a clause that exists and quotes words that are actually in it.
+
+    This is the check that makes the LLM compiler in T4.1 trustworthy rather than merely
+    plausible. A model asked for rules with citations will produce rules with citations;
+    what it will not reliably produce is rules whose quoted words survive a literal
+    substring test against the regulation.
+
+    Public because the compiler (`agent/compiler.py`) runs it on a *proposal*, before the
+    proposal is ever written to disk. A rule that fails here never reaches the reviewer's
+    diff, which keeps the review about judgement rather than about spotting fabrications.
+    """
+    clauses = {int(n) for n in _CLAUSE_HEADING.findall(text)}
+    if not clauses:
+        raise ValueError(
+            f"no numbered clauses found in {source_name}: the citation check would pass "
+            "vacuously, which is worse than not running it."
+        )
+    haystack = _normalise(text)
+
+    for rule in rules:
+        match = _CLAUSE_NUMBER.match(rule.clause.strip())
+        if match is None or int(match.group(1)) not in clauses:
+            raise ValueError(
+                f"rule {rule.rule_id!r} cites clause {rule.clause!r}, which is not one of "
+                f"the {len(clauses)} numbered clauses in {source_name} "
+                f"({min(clauses)}-{max(clauses)})."
+            )
+        if _normalise(rule.quote) not in haystack:
+            raise ValueError(
+                f"rule {rule.rule_id!r} quotes text that does not appear in "
+                f"{source_name}:\n  {rule.quote!r}\n"
+                "A quote that is not in the source is a rule the regulation does not "
+                "support, however reasonable it sounds."
+            )
+
+
 def load_policy(path: Path = POLICY_PATH) -> Policy:
-    return Policy.model_validate(_read_yaml(path))
+    """Load, validate, and check every rule against the circular text it cites.
+
+    Costs one file read and one SHA-256 of a ~12 KB document per call, which is why the
+    auditor takes a `Policy` rather than re-loading per mandate.
+    """
+    policy = Policy.model_validate(_read_yaml(path))
+    if policy.rules and not policy.source.read:
+        raise ValueError(
+            f"{path.name} carries {len(policy.rules)} rules but `source.read` is false. "
+            "Rules compiled from a circular nobody read are rules with no origin -- see "
+            "CLAUDE.md 3."
+        )
+    check_rule_citations(policy.rules, source_text(policy, path.parent), policy.source.text_file)
+    return policy
 
 
 def policy_hash(path: Path = POLICY_PATH) -> str:

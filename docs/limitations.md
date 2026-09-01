@@ -1,6 +1,6 @@
 # Limitations
 
-Status: written 2026-09-01, during Phase 3 · Last updated: 2026-09-01
+Status: written 2026-09-01, during Phase 3 · Last updated: 2026-09-02 (§8, Phase 4)
 
 This document was written **before** the build was finished, which is the only reason to
 trust it. A limitations section written on the last day is written to survive the results;
@@ -320,3 +320,93 @@ The claims that **are** available: the pipeline is reproducible to the byte; the
 is computed two independent ways and agrees to 0.00%; the ladder isolates allocation from
 information; and the measurement apparatus is built correctly with its statistical power
 known. Those are smaller sentences. They are also true.
+
+---
+
+## 8. What reading the actual regulation cost us (Phase 4)
+
+Added 2026-09-02, on the day T4.1 read the circular text instead of reading about it. Three
+of the four entries here are worse for this project than what it believed the day before,
+which is the reason they get a section rather than a footnote.
+
+### 8.1 Clause 2 does not reach eNACH, and eNACH is 15% of the book
+
+The framework applies to recurring transactions "using cards / PPI / UPI". eNACH is not in
+that list; eNACH and NACH mandates run under NPCI's procedural guidelines instead.
+`config/params.yaml` assigns eNACH a **15%** share of `india.rail_mix`, so roughly a seventh
+of the modelled book sits outside the regulation whose arrival is this project's entire "why
+now" argument.
+
+This is not fatal and it is not cosmetic. The optimiser does not care — it allocates asks
+against hazard and rupees, and a mandate's rail affects its cost, not its legality. What it
+changes is the pitch: "the RBI just changed the rules for this book" is true of 85% of the
+book as modelled, and the sentence has to say so. The auditor returns `needs_human` for an
+eNACH mandate rather than grading it, and `scope_cards_ppi_upi` is the only rule in the
+compiled book that fails into `needs_human` rather than `non_compliant`.
+
+**What would close it:** a second compiled rulebook for the NACH guidelines, cited the same
+way. That is a Phase 4-sized task on its own and is not in this build.
+
+### 8.2 The pre-debit notice is the issuer's obligation, not the merchant's
+
+Clause 6(a) reads "An issuer shall send a pre-transaction notification"; clause 3(a) takes
+'issuer' from the 2025 authentication directions, where it means the card, PPI or account
+issuer. This project is merchant-side. It therefore does not discharge clause 6 at all.
+
+The consequence lands squarely on T4.3, whose stated design is "an RBI-compliant pre-debit
+notice with a piggybacked re-consent CTA". The notice is composed *for an issuer or payment
+aggregator to send*, and the piggybacked ask is a commercial arrangement with that party —
+not a regulatory entitlement, and not something a merchant can do unilaterally. Clause 10(c)
+("An acquirer shall ensure compliance ... by merchants on-boarded by them") is the only
+sentence in the framework that reaches a merchant, and it reaches them through the acquirer.
+
+**Sentence not available:** "MandateGuard sends the RBI-mandated pre-debit notice."
+**Sentence available:** "MandateGuard composes a notice that passes a deterministic
+compliance linter, for the party whose obligation it is to send it."
+
+### 8.3 One compiled rule is an inference, and is labelled as one in the YAML
+
+`debit_within_customer_cap` asserts that a variable-amount debit above the customer's stated
+maximum is a breach. Clause 4(c) grants the customer *a facility to specify* that maximum; it
+contains no sentence saying a debit above it is non-compliant. This project reads the facility
+as binding — a cap that can be exceeded is not a cap — but the reading is ours, and clause
+5(b) shows the framework is willing to say the opposite about other customer-set controls
+("Payments under e-mandates shall not be subject to any other limits / controls set by the
+customer"). The rule's `description` field says so in the file itself, which is where a
+reviewer will actually read it.
+
+### 8.4 The framework is silent on mandates that predate it
+
+Clause 1(b) is "effective immediately" and clause 11 repeals eight circulars with no savings
+clause — so `calibration.md` §5's "no transition period" is now settled *from the text*. What
+the text does not do is say what happens to mandates registered under the repealed circulars.
+Clause 10(b) is the only sentence touching them and it covers card re-issuance only. Silence
+is not permission and it is not a requirement. Anyone sizing "how much of the book must be
+re-consented and by when" is reading an intention into a gap, and this project does not.
+
+### 8.5 The compile is checkable but has not been reproduced
+
+The twenty rules in `policy/mandate_policy.yaml` were compiled during the T4.1 session and
+then reviewed clause by clause. Every one of them is *checked* on every load: the clause
+number must exist in the circular, the quote must appear in it verbatim, the circular's
+SHA-256 must match the hash pinned in the policy, and the expression must parse under a
+call-free whitelist over a declared field vocabulary.
+
+What has **not** happened is a re-run of the compiler job against the API, because no
+Anthropic credential was available on the machine where Phase 4 was built. So
+`tests/cassettes/policy_compiler/` is empty and `scripts/compile_policy.py` exits 2 with a
+cassette miss. The claim this task can make is that the rules are verifiable against their
+source; the claim it cannot yet make is that an independent run of the same prompt produces
+them. `--check` is the half that works without a credential, and it is the half that matters
+for trusting the rulebook.
+
+### 8.6 The circular text is retrieved, not certified
+
+`policy/sources/rbi-2026-04-21-e-mandate-framework.md` was fetched from `rbi.org.in` and
+converted from HTML to markdown, then compared against a second verbatim reproduction before
+being committed. The RBI PDF was not parsed byte for byte. Clause numbering and the wording
+of every quoted obligation agree across the two renderings, and the one deliberate
+substitution — writing the rupee sign as `Rs.` in clause 8 so that Windows and Linux agree on
+one encoding — is stated in the file. For a hackathon this is enough; for anything that
+matters, the PDF is the artefact, and the clause numbers are what tell a reader where to look.
+

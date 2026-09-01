@@ -1,15 +1,372 @@
-# Compiled regulatory policy. Every rule carries a clause citation into its source.
+# Compiled regulatory policy. Every rule carries a clause citation AND the words it is
+# citing, and `policy/loader.py` checks both against `sources/` before this file loads.
 #
-# This file is written by the LLM policy compiler (T4.1) from the actual RBI circular
-# text and reviewed by a human as a diff. Rules without a `clause` are rejected by the
-# loader -- that rejection is what keeps the compiler honest.
+# Written by the policy compiler (T4.1, `scripts/compile_policy.py`) from the circular text
+# committed alongside it, and reviewed by a human as a diff. Three things get a rule
+# rejected at load time, all of them silent failures otherwise:
 #
-# v0: skeleton only. Real rules land in T4.1, after the circular has been read.
+#   * no clause reference, or a clause number the circular does not have
+#   * a `quote` that is not a literal substring of the source text
+#   * an `expression` that calls a function, or reads a field MandateAuditContext lacks
+#
+# What is NOT in here is as deliberate as what is. Clause 8 is headed "Transaction limits
+# and velocity check" and states no velocity limit anywhere in its text, so no velocity
+# rule was compiled. A rule written to match a heading is the exact hallucination this
+# file's checks exist to catch, and it would have passed a reviewer skimming for coverage.
 
-version: 0
+version: 1
+
 source:
-  name: RBI Digital Payments E-Mandate Framework, 2026
-  notified_on: 2026-04-21
-  read: false          # flip to true only once the circular text has actually been read
+  name: Digital Payments - E-mandate Framework, 2026
+  circular_no: RBI/DPSS/2026-27/396
+  dated: 2026-04-21
+  url: https://www.rbi.org.in/Scripts/BS_ViewMasDirections.aspx?id=13374
+  retrieved_on: 2026-09-01
+  text_file: sources/rbi-2026-04-21-e-mandate-framework.md
+  sha256: 11a691ca6fc2d99b646d294c5d4bf5ce8a1f5534b65d2132f8be2ce1a518ec61
+  read: true
 
-rules: []
+rules:
+  # ------------------------------------------------------------------------------
+  # Clause 2 -- applicability. This one decides whether the rest of the book applies
+  # at all, which is why it fails into NEEDS_HUMAN rather than NON_COMPLIANT.
+  # ------------------------------------------------------------------------------
+  - rule_id: scope_cards_ppi_upi
+    clause: "2"
+    quote: >-
+      The provisions of these Directions shall be applicable to all Payment System
+      Providers and Payment System Participants in respect of processing of recurring
+      transactions, domestic or cross-border, using cards / PPI / UPI.
+    description: >-
+      The framework reaches cards, PPI and UPI. It does not reach eNACH, which runs under
+      NPCI's NACH procedural guidelines instead -- and eNACH is 15% of this project's
+      modelled rail mix (config/params.yaml). An eNACH mandate is therefore neither
+      compliant nor non-compliant with this circular; it is outside it, and saying so is
+      the only honest answer available.
+    applies_when: "True"
+    expression: "rail == 'card' or rail == 'ppi' or rail == 'upi_autopay'"
+    verdict_on_fail: needs_human
+    remedy: >-
+      Route this mandate to the NACH compliance path. Nothing in the 2026 e-mandate
+      framework governs it, so no finding under this rulebook is available either way.
+
+  # ------------------------------------------------------------------------------
+  # Clause 4 -- registration and revocation.
+  # ------------------------------------------------------------------------------
+  - rule_id: registration_requires_afa
+    clause: "4(a)"
+    quote: >-
+      The mandate shall be registered only after successful validation of additional factor
+      of authentication (AFA), in addition to the normal process required by the issuer.
+    description: >-
+      A mandate registered without AFA is void at the root: every debit taken under it
+      inherits the defect, so this rule is checked on every audit rather than only at
+      registration time.
+    applies_when: "True"
+    expression: "afa_at_registration"
+    verdict_on_fail: non_compliant
+    remedy: >-
+      Stop debits on this mandate and re-register it with AFA. Do not attempt to repair it
+      by adding AFA to the next transaction; clause 4(a) attaches to registration.
+
+  - rule_id: validity_period_and_withdrawal
+    clause: "4(b)"
+    quote: >-
+      Every e-mandate registered by the issuer shall specify the validity period of the
+      e-mandate. The issuer shall provide the customer with a facility to modify the
+      validity period or withdraw the e-mandate at any point of time.
+    description: >-
+      Two obligations in one sentence, kept in one rule because the clause keeps them
+      together: a stated validity period, and a live facility to change or end it. This is
+      the clause that makes "expire_by" a regulatory field and not just a data field.
+    applies_when: "True"
+    expression: "validity_period_specified and withdrawal_facility_offered"
+    verdict_on_fail: non_compliant
+    remedy: >-
+      Publish the mandate's validity period and expose a self-serve modify/withdraw path
+      before the next debit.
+
+  - rule_id: variable_mandate_customer_cap
+    clause: "4(c)"
+    quote: >-
+      In the case of variable e-mandates, the issuer shall provide the customer with a
+      facility to specify the maximum value of any recurring transaction.
+    description: >-
+      Only variable-amount mandates are in scope; a fixed-amount mandate has no maximum to
+      specify. The guard is what keeps this rule from firing on the majority of the book.
+    applies_when: "is_variable_amount"
+    expression: "customer_cap_inr is not None"
+    verdict_on_fail: non_compliant
+    remedy: >-
+      Offer the customer a per-transaction maximum and record it before the next variable
+      debit.
+
+  - rule_id: debit_within_customer_cap
+    clause: "4(c)"
+    quote: >-
+      In the case of variable e-mandates, the issuer shall provide the customer with a
+      facility to specify the maximum value of any recurring transaction.
+    description: >-
+      INFERENCE, and marked as one. The clause grants the customer a facility to set a
+      maximum; it does not contain a sentence saying a debit above that maximum is a
+      breach. This project reads the facility as binding, because a cap that can be
+      exceeded is not a cap -- but that reading is ours, not the regulator's, and clause
+      5(b) ("shall not be subject to any other limits / controls set by the customer")
+      shows the framework is willing to say the opposite about other customer-set controls.
+      Listed in docs/limitations.md rather than defended as text.
+    applies_when: "is_variable_amount and customer_cap_inr is not None"
+    expression: "amount_inr <= customer_cap_inr"
+    verdict_on_fail: non_compliant
+    remedy: >-
+      Hold the debit and re-authorise with AFA, or reduce it to the customer's stated
+      maximum.
+
+  - rule_id: notification_mode_choice
+    clause: "4(d)"
+    quote: >-
+      The customer shall be given a facility to choose or change a mode among available
+      options (SMS, email, etc.) for receiving the pre-transaction notification from the
+      issuer.
+    description: >-
+      The customer picks the channel for the pre-debit notice. Worth noting against this
+      project's own channel ladder: the regulation gives the customer control over the
+      notification channel, which is not the same thing as the allocator's freedom to pick
+      a channel for a re-consent ask. The two must not be conflated in the UI.
+    applies_when: "True"
+    expression: "notification_mode_choice_offered"
+    verdict_on_fail: non_compliant
+    remedy: Expose a notification-mode preference the customer can change at any time.
+
+  - rule_id: modification_requires_afa
+    clause: "4(e)"
+    quote: >-
+      Any modification in, or withdrawal of, an existing e-mandate shall require AFA
+      validation by the issuer.
+    description: >-
+      Applies to withdrawal as well as modification, which is the counter-intuitive half:
+      letting a customer cancel without AFA is a compliance failure, not a courtesy.
+    applies_when: "is_modification"
+    expression: "afa_on_modification"
+    verdict_on_fail: non_compliant
+    remedy: Re-run the modification or withdrawal through AFA before it takes effect.
+
+  # ------------------------------------------------------------------------------
+  # Clause 5 -- first and subsequent transactions.
+  # ------------------------------------------------------------------------------
+  - rule_id: first_transaction_requires_afa
+    clause: "5(a)"
+    quote: "The first transaction under an e-mandate shall require AFA validation."
+    description: >-
+      Guarded on the first transaction only. The clause allows this AFA to be combined with
+      registration's, so a mandate registered and first-debited in one flow satisfies both
+      4(a) and 5(a) with a single authentication.
+    applies_when: "is_first_transaction"
+    expression: "afa_on_first_transaction"
+    verdict_on_fail: non_compliant
+    remedy: Authenticate the first debit before taking it.
+
+  # ------------------------------------------------------------------------------
+  # Clause 6 -- pre-transaction notification. The clause this project leans on hardest,
+  # and the one whose obligation belongs to the issuer rather than to a merchant.
+  # ------------------------------------------------------------------------------
+  - rule_id: pre_debit_notice_lead_time
+    clause: "6(a)"
+    quote: >-
+      An issuer shall send a pre-transaction notification to the customer, at least 24
+      hours prior to the actual charge / debit.
+    description: >-
+      24 hours, not one day: a notice sent at 09:00 for a 20:00 debit the same evening is
+      eleven hours and fails. FASTag and NCMC are excluded by the guard, on clause 6(d).
+      Note the subject of the sentence -- "an issuer" -- this project is merchant-side and
+      does not discharge this obligation itself.
+    applies_when: "category != 'fastag' and category != 'ncmc'"
+    expression: "pre_debit_notice_hours is not None and pre_debit_notice_hours >= 24"
+    verdict_on_fail: non_compliant
+    remedy: >-
+      Move the notification at least 24 hours ahead of the debit, or move the debit back.
+
+  - rule_id: pre_debit_notice_contents
+    clause: "6(b)"
+    quote: >-
+      The pre-transaction notification shall, at the minimum, inform the customer about the
+      merchant's name, transaction amount, date / time of debit, reference number of
+      e-mandate, reason for debit
+    description: >-
+      Five mandatory fields, spelled out one `in` at a time because the expression grammar
+      has no function calls (agent/expression.py). The verbosity is the point: a reviewer
+      can check five names against the clause without running anything.
+    applies_when: "category != 'fastag' and category != 'ncmc'"
+    expression: >-
+      'merchant_name' in pre_debit_notice_fields and 'amount' in pre_debit_notice_fields
+      and 'debit_datetime' in pre_debit_notice_fields and 'mandate_reference' in
+      pre_debit_notice_fields and 'reason' in pre_debit_notice_fields
+    verdict_on_fail: non_compliant
+    remedy: >-
+      Add the missing field(s) to the notice template. The deterministic linter (T4.4)
+      checks the same five on generated text, so a template fix closes both.
+
+  - rule_id: opt_out_facility
+    clause: "6(c)"
+    quote: >-
+      The issuer shall provider a customer with a facility to opt-out of any particular
+      transaction or the e-mandate.
+    description: >-
+      Quoted with the circular's own typo ("shall provider"), because the loader checks
+      quotes as literal substrings and a tidied quote is an unverifiable one. Two scopes of
+      opt-out: this debit, or the whole mandate.
+    applies_when: "True"
+    expression: "opt_out_offered"
+    verdict_on_fail: non_compliant
+    remedy: Add a per-transaction and a whole-mandate opt-out path to the notice.
+
+  - rule_id: opt_out_requires_afa
+    clause: "6(c)"
+    quote: "Any such opt-out shall be validated by the issuer using AFA."
+    description: >-
+      The half that gets missed. A one-click unsubscribe link in a pre-debit notice is a
+      breach of this sentence, not a UX improvement -- the opt-out has to be authenticated.
+      Guarded on `opt_out_offered` so a missing facility fails once, under the rule above,
+      rather than twice.
+    applies_when: "opt_out_offered"
+    expression: "opt_out_afa_validated"
+    verdict_on_fail: non_compliant
+    remedy: Route the opt-out through AFA and send the customer an intimation afterwards.
+
+  - rule_id: notice_exemption_not_over_claimed
+    clause: "6(d)"
+    quote: >-
+      Pre-transaction notification is not required for e-mandates registered to
+      auto-replenish balances of FASTag, and National Common Mobility Card (NCMC).
+    description: >-
+      The one rule in this book that runs the other way. Every other clause is an
+      obligation and the breach is failing it; here the breach is claiming an exemption you
+      do not hold -- suppressing the notice on a mandate that is not FASTag or NCMC. A rule
+      set that only compiled obligations would never look for this, and the failure is
+      invisible from inside the sending system, which reports "notice not required" and
+      moves on.
+    applies_when: "claims_notice_exemption"
+    expression: "category == 'fastag' or category == 'ncmc'"
+    verdict_on_fail: non_compliant
+    remedy: >-
+      Stop suppressing the pre-transaction notice for this mandate and send it 24 hours
+      ahead of the next debit.
+
+  # ------------------------------------------------------------------------------
+  # Clause 7 -- post-transaction notification.
+  # ------------------------------------------------------------------------------
+  - rule_id: post_transaction_notice
+    clause: "7"
+    quote: "An issuer shall send a post-transaction notification to the customer."
+    description: >-
+      Unconditional in the text: clause 6(d)'s FASTag/NCMC carve-out is written against
+      *pre*-transaction notification only, and does not reach clause 7. So a FASTag mandate
+      needs no notice before the debit and still needs one after it.
+    applies_when: "True"
+    expression: "post_transaction_notice_sent"
+    verdict_on_fail: non_compliant
+    remedy: Send a post-transaction notification after every debit, FASTag and NCMC included.
+
+  - rule_id: post_transaction_notice_contents
+    clause: "7"
+    quote: >-
+      reference number of transaction and e-mandate, reason for debit, i.e., e-mandate
+      registered by the customer, and details on grievance redressal.
+    description: >-
+      Seven fields, two more than the pre-debit notice: the transaction reference and the
+      grievance-redressal details. The grievance line is the one that ties clause 7 to
+      clause 9(a) -- redressal has to exist and the customer has to be told how to reach it.
+    applies_when: "post_transaction_notice_sent"
+    expression: >-
+      'merchant_name' in post_transaction_notice_fields and 'amount' in
+      post_transaction_notice_fields and 'debit_datetime' in post_transaction_notice_fields
+      and 'transaction_reference' in post_transaction_notice_fields and
+      'mandate_reference' in post_transaction_notice_fields and 'reason' in
+      post_transaction_notice_fields and 'grievance_redressal' in
+      post_transaction_notice_fields
+    verdict_on_fail: non_compliant
+    remedy: Add the missing field(s) to the post-transaction notice template.
+
+  # ------------------------------------------------------------------------------
+  # Clause 8 -- AFA ceilings. The two rules are mutually exclusive by construction:
+  # whichever one applies, the other's guard is false. That is what makes Rs.14,999
+  # vs Rs.15,001 vs an Rs.20,000 insurance premium three different answers.
+  # ------------------------------------------------------------------------------
+  - rule_id: afa_general_ceiling
+    clause: "8(a)"
+    quote: >-
+      All recurring transactions may be authorised without AFA up to Rs.15,000/- per
+      transaction. Transactions above this amount shall be subject to AFA.
+    description: >-
+      "Up to Rs.15,000" is inclusive, so Rs.15,000 exactly passes without AFA and Rs.15,001
+      does not. The guard excludes the three enhanced-ceiling categories; without it this
+      rule would fail an Rs.20,000 insurance premium that clause 8(b) expressly permits.
+    applies_when: >-
+      category != 'insurance_premium' and category != 'mutual_fund' and category !=
+      'credit_card_bill'
+    expression: "amount_inr <= 15000 or afa_on_this_transaction"
+    verdict_on_fail: non_compliant
+    remedy: Authenticate this debit with AFA, or split it below the Rs.15,000 ceiling.
+
+  - rule_id: afa_enhanced_ceiling
+    clause: "8(b)"
+    quote: >-
+      Payment of insurance premiums, subscription to mutual funds, and credit card bill
+      payments may be made without AFA up to Rs.1,00,000/- per transaction.
+    description: >-
+      Three named categories only. The list is closed in the text -- a utility bill, a
+      school fee or a loan EMI is not in it and stays under the Rs.15,000 ceiling however
+      much it resembles the three.
+    applies_when: >-
+      category == 'insurance_premium' or category == 'mutual_fund' or category ==
+      'credit_card_bill'
+    expression: "amount_inr <= 100000 or afa_on_this_transaction"
+    verdict_on_fail: non_compliant
+    remedy: Authenticate this debit with AFA; it is above the Rs.1,00,000 enhanced ceiling.
+
+  # ------------------------------------------------------------------------------
+  # Clauses 9 and 10 -- redressal, charges, and the merchant-facing obligation.
+  # ------------------------------------------------------------------------------
+  - rule_id: grievance_redressal_system
+    clause: "9(a)"
+    quote: >-
+      An appropriate dispute redressal system shall be put in place by the issuer to
+      facilitate the customer to lodge grievance/s.
+    description: >-
+      Checked per mandate rather than once per system, because the audit answers "is this
+      mandate compliant" and a redressal path that does not cover this rail or this
+      merchant does not help the customer holding this mandate.
+    applies_when: "True"
+    expression: "grievance_redressal_available"
+    verdict_on_fail: non_compliant
+    remedy: Publish a reachable grievance channel and reference it in the notices.
+
+  - rule_id: no_customer_charges
+    clause: "10(a)"
+    quote: >-
+      No charges shall be levied to the customer for availing the e-mandate facility for
+      recurring transactions.
+    description: >-
+      Zero, not "reasonable". The comparison is against 0 exactly; any positive amount
+      charged for the facility itself is a breach. Charges for the underlying goods or
+      service are a different thing and are not what this field carries.
+    applies_when: "True"
+    expression: "customer_charges_inr == 0"
+    verdict_on_fail: non_compliant
+    remedy: Refund the facility charge and remove it from the pricing table.
+
+  - rule_id: acquirer_ensures_merchant_compliance
+    clause: "10(c)"
+    quote: >-
+      An acquirer shall ensure compliance with these directions by merchants on-boarded by
+      them.
+    description: >-
+      The only sentence in the framework that reaches a merchant, and it reaches them
+      through their acquirer. It is the clause that gives a merchant-side system like this
+      one a place to stand: not as the party discharging clauses 4 to 9, but as evidence an
+      acquirer can point at when asked how it ensures compliance.
+    applies_when: "True"
+    expression: "acquirer_compliance_checked"
+    verdict_on_fail: non_compliant
+    remedy: >-
+      Record an acquirer-side compliance check for this merchant before the next debit
+      cycle.

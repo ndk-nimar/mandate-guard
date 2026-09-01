@@ -24,8 +24,18 @@ that date.
 
 **RBI Circular RBI/DPSS/2026-27/396, 21 April 2026 — "Digital Payments – E-Mandate
 Framework, 2026".** Verified: the circular exists, with that number and that date. It
-consolidates and repeals the RBI's recurring-transaction circulars issued between 2019 and
-2024.
+consolidates and repeals eight of the RBI's recurring-transaction circulars issued between
+August 2019 and August 2024, listed by number and date in its clause 11.
+
+**Upgraded in T4.1 (2026-09-01): the circular text itself has now been read.** Until then
+every row below came from three secondary law-firm summaries, and this section said so.
+The text is retrieved from `rbi.org.in` and committed at
+[`policy/sources/rbi-2026-04-21-e-mandate-framework.md`](../policy/sources/rbi-2026-04-21-e-mandate-framework.md),
+with its SHA-256 pinned in `policy/mandate_policy.yaml` — every one of the twenty compiled
+rules quotes it verbatim, and the loader refuses to start if a quote or the hash does not
+match. What was *not* done is parsing the RBI PDF byte for byte; the committed text is an
+HTML-to-markdown conversion cross-checked against a second reproduction, and that file
+states the distinction in its own words.
 
 | claim | figure | status |
 |---|---|---|
@@ -34,7 +44,13 @@ consolidates and repeals the RBI's recurring-transaction circulars issued betwee
 | AFA-free ceiling, general | **₹15,000** per transaction; above it, AFA applies | verified |
 | AFA-free ceiling, insurance premiums / mutual fund subscriptions / credit-card bills | **₹1,00,000** per transaction | verified |
 | FASTag and NCMC auto-replenishment | inside the e-mandate framework | verified |
-| Transition period | none | **from the build plan; not independently verified** (§5) |
+| Transition period | none stated | **verified from the text** — clause 1(b) is "effective immediately" and clause 11 carries no savings or grandfathering provision |
+| Re-registration of mandates predating the framework | not addressed | **the text is silent** — clause 10(b) covers card re-issuance only; see `limitations.md` |
+| Applicability | cards / PPI / UPI, domestic **and cross-border** | verified — clause 2. eNACH is **not** in that list |
+| Post-transaction notification | required, seven fields including grievance redressal | verified — clause 7, and it carries no FASTag/NCMC carve-out |
+| Opt-out of a debit or a mandate | required, and the opt-out itself must be AFA-validated | verified — clause 6(c) |
+| Charges to the customer for the facility | none permitted | verified — clause 10(a) |
+| Velocity check | **no limit stated**, despite clause 8's heading naming one | verified absence — no rule compiled |
 
 **What this pins in code.** `config/params.yaml`'s
 `india.upi_autopay_afa_threshold_inr: 15000.0` is this circular's general AFA ceiling, not
@@ -46,10 +62,19 @@ Sources: [Conventus Law](https://conventuslaw.com/report/rbis-digital-payments-e
 [AMLEGALS](https://amlegals.com/digital-payments-e-mandate-framework-2026-rbis-new-rules-for-auto-debit-transactions/) ·
 [World Trade Scanner](https://worldtradescanner.com/RBI%20Issues%20Digital%20Payments%E2%80%93E-Mandate%20Framework%202026.htm)
 
-T4.1 reads the circular text itself and compiles it into `policy/mandate_policy.yaml` with
-clause references. Until that runs, the rules above are secondary reporting, and the
-distinction matters: a secondary source is enough to size a market and not enough to
-compile a compliance rule from.
+T4.1 compiled the text into `policy/mandate_policy.yaml`: **20 rules across 17 clauses**,
+each carrying a clause number and a verbatim quote. Run
+`uv run python scripts/compile_policy.py --check` to regenerate that table from the files
+themselves; it calls no model and needs no credential.
+
+Two findings from the read that go against this project rather than for it, both now in
+[`limitations.md`](./limitations.md):
+
+* **Clause 2 does not cover eNACH**, which is 15% of `india.rail_mix`. That share of the
+  modelled book sits outside the regulation whose arrival is this project's "why now".
+* **Clause 6(a)'s pre-transaction notification is the *issuer's* obligation**, not the
+  merchant's. A merchant-side allocator does not discharge it; clause 10(c) is the only
+  sentence that reaches merchants, and it routes through their acquirer.
 
 ### 1.2 An adjacent obligation: KYC periodic updation
 
@@ -207,11 +232,25 @@ The honest half of the document.
 found on 2026-08-29. Until it is sourced it must not appear in the pitch, the video, or
 `problem.md`. The 2021 figures in §2.2 are verified and say enough.
 
-**"No transition period" for the April 2026 framework.** The secondary reporting describes
-the framework as consolidating and repealing earlier circulars, and none of it stated a
-transition window either way. Absence of a stated transition is not the same as a stated
-absence, and the difference matters for a "why now" argument. To be settled from the
-circular text in T4.1.
+**~~"No transition period" for the April 2026 framework.~~ SETTLED in T4.1 (2026-09-01).**
+Kept here rather than deleted, because how it was settled is the point. The secondary
+reporting never stated a transition window either way, and absence of a stated transition
+is not the same as a stated absence. The circular text closes it: clause 1(b) reads "These
+Directions shall be effective immediately", and clause 11's repeal of eight circulars
+carries no savings clause. So the "why now" argument stands on the text.
+
+What did **not** get settled, and is now its own line: the framework is *silent* on whether
+mandates registered under the repealed circulars must be re-registered. Clause 10(b) is the
+only sentence touching existing mandates and it covers card re-issuance. Silence is neither
+permission nor requirement, and it stays open in `limitations.md`.
+
+**LLM prices in `config/params.yaml` (`llm.price_*`).** $5.00 / $25.00 per million input /
+output tokens for `claude-opus-5`, with cache reads at 0.1x input and cache writes at 1.25x.
+These are Anthropic's published list rates as of 2026-09-01 and they are **not converted to
+rupees** anywhere: no verified USD/INR rate exists in this repository, and `india.ntd_to_inr:
+1.0` is a decision about a subscription price ladder rather than an exchange rate. Every
+cost figure in `llm_eval.md` is therefore in USD, deliberately, and stands out against every
+other number in this project for that reason.
 
 **Channel cost table (`params.yaml` `channels[]`).** ₹0 in-app, ₹0.05 email, ₹0.15 SMS,
 ₹0.35 WhatsApp, ₹2 IVR, ₹25 letter, ₹40 agent call. These are plausible Indian rate-card
@@ -249,7 +288,8 @@ this project *asserts*, and those are numbers it *cites*.
    2026 reader will take them as current (§2.1).
 3. Drop the unverified "card post-2021 failure 20%+" claim wherever it appears, or source
    it (§5).
-4. Settle the transition-period question from the circular text during T4.1 (§1).
+4. ~~Settle the transition-period question from the circular text during T4.1 (§1).~~
+   **Done, 2026-09-01.** Settled against the text; see §1 and §5.
 5. **Write [`prior_art.md`](./prior_art.md), or stop linking to it.** §5 above sends every
    prior-art number there for its exact claim and page reference, and
    [`problem.md`](./problem.md) links to it as well — but the file has never existed. So

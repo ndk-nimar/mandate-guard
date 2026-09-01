@@ -31,6 +31,13 @@ jobs:
       - name: Types
         run: uv run mypy || true
 
+      # GATE 4's first half, and it needs no API key: re-hash the committed RBI circular
+      # and re-check all twenty compiled rules against it -- clause number, verbatim
+      # quote, expression grammar, field names. A rule that drifts from its source fails
+      # here rather than in a demo.
+      - name: Policy rules cite what they quote
+        run: uv run python scripts/compile_policy.py --check
+
       - name: Tests
         run: uv run pytest
         # RUN_S3 is deliberately unset: the two-process boot is a local/manual gate,

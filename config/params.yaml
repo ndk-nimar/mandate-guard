@@ -173,3 +173,26 @@ india:
   default_debit_frequency_days: 30
 
 seed: 20260905
+
+# Phase 4 -- the LLM layer. Prices are USD per million tokens, taken from Anthropic's
+# published rates for the model named here, and are NOT converted to rupees: no verified
+# USD/INR rate exists in this repository, and `india.ntd_to_inr: 1.0` above is a
+# deliberate decision about a price ladder, not an exchange rate (docs/mapping.md 3.4).
+# Borrowing it here would put a fabricated FX rate inside a cost-per-verdict headline.
+#
+# The two cache prices are multiples of the input price rather than separate quotes:
+# a cache read bills at 0.1x input and a cache write at 1.25x. They are written out in
+# full so that a reader can check them against the rate card without doing arithmetic.
+llm:
+  model: claude-opus-5
+  max_tokens: 8000
+  effort: high
+  price_input_usd_per_mtok: 5.00
+  price_output_usd_per_mtok: 25.00
+  price_cache_read_usd_per_mtok: 0.50
+  price_cache_write_usd_per_mtok: 6.25
+  # Ceiling on what one eval run may spend before it stops (T5.3's spend cap starts
+  # here). 120 golden cases through the Batch API at ~1.5k in / ~0.4k out per case is
+  # roughly 0.55 USD; 5.00 leaves room for a red-team arm and retries without leaving
+  # room for a runaway loop.
+  spend_cap_usd_per_run: 5.00

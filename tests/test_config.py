@@ -93,6 +93,17 @@ INTERVENTION = {
     "natural_revocation_share": 0.634,
 }
 
+LLM = {
+    "model": "claude-opus-5",
+    "max_tokens": 8000,
+    "effort": "high",
+    "price_input_usd_per_mtok": 5.0,
+    "price_output_usd_per_mtok": 25.0,
+    "price_cache_read_usd_per_mtok": 0.5,
+    "price_cache_write_usd_per_mtok": 6.25,
+    "spend_cap_usd_per_run": 5.0,
+}
+
 
 def params_payload(**overrides):
     """A minimal valid Params body, so each test can break exactly one thing."""
@@ -114,6 +125,7 @@ def params_payload(**overrides):
         "intervention": dict(INTERVENTION),
         "horizon": {"weeks": 12, "budget_inr_per_week": 500.0},
         "india": dict(INDIA),
+        "llm": dict(LLM),
         "seed": 1,
     }
     payload.update(overrides)

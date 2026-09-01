@@ -62,6 +62,39 @@ class DecisionKind(StrEnum):
     NOT_ASKED = "not_asked"
 
 
+class MandateCategory(StrEnum):
+    """What is being debited. The circular's AFA ceiling depends on it (clause 8).
+
+    Three of these -- insurance premiums, mutual fund subscriptions, credit card bills --
+    carry a Rs.1,00,000 ceiling instead of the general Rs.15,000 one, and `FASTAG`/`NCMC`
+    are exempt from the pre-transaction notification entirely (clause 6(d)). So the
+    category is not a label on a mandate; it selects which rules apply to it, which is why
+    it is an enum rather than a free-text field.
+    """
+
+    GENERAL = "general"
+    INSURANCE_PREMIUM = "insurance_premium"
+    MUTUAL_FUND = "mutual_fund"
+    CREDIT_CARD_BILL = "credit_card_bill"
+    FASTAG = "fastag"
+    NCMC = "ncmc"
+
+
+class Verdict(StrEnum):
+    """The auditor's answer about one mandate.
+
+    `NEEDS_HUMAN` is a first-class outcome, not a fallback for when the model is unsure. It
+    is what the system returns when the regulation genuinely does not answer the question:
+    an eNACH mandate is outside clause 2's "cards / PPI / UPI" scope, and calling it
+    `COMPLIANT` would be a claim about a rulebook that does not reach it. An auditor that
+    can only say yes or no has to guess on exactly the cases where guessing costs the most.
+    """
+
+    COMPLIANT = "compliant"
+    NON_COMPLIANT = "non_compliant"
+    NEEDS_HUMAN = "needs_human"
+
+
 class Channel(BaseModel):
     """A way to contact a customer, with its own price and efficacy prior.
 
@@ -255,14 +288,51 @@ class LedgerEntry(BaseModel):
 
 class PolicyRule(BaseModel):
     """One compiled regulatory rule. Every rule traces back to a circular clause -- rules
-    without a citation are rejected, which is what keeps the LLM policy compiler honest."""
+    without a citation are rejected, which is what keeps the LLM policy compiler honest.
+
+    `clause` alone was not enough. A citation is a pointer, and a pointer can point at a
+    clause that says something else: "clause 6(a)" attached to a rule about rupee limits is
+    still a citation, and nothing in a `min_length=1` check notices. So a rule also carries
+    `quote`, the words themselves, and `policy/loader.py` checks that quote against the
+    committed circular text as a literal substring. A rule can now only cite what the
+    regulation actually says, because the citation has to survive `in` against the source
+    file (T4.1).
+    """
 
     model_config = ConfigDict(frozen=True)
 
     rule_id: str
     clause: str = Field(min_length=1, description="citation into the source circular")
+    quote: str = Field(
+        min_length=1,
+        description="verbatim words from that clause; checked against the source text",
+    )
     description: str
-    expression: str
+    applies_when: str = Field(
+        default="True",
+        description="guard: the rule is skipped, not failed, when this is false",
+    )
+    expression: str = Field(description="must evaluate true for the mandate to comply")
+    verdict_on_fail: Verdict = Field(
+        default=Verdict.NON_COMPLIANT,
+        description="what a failure of this rule means; NEEDS_HUMAN for scope questions",
+    )
+    remedy: str = Field(description="what to do about a failure, in plain language")
+
+    @model_validator(mode="after")
+    def _failure_is_a_finding(self) -> Self:
+        """A rule that fails into COMPLIANT is a rule that cannot fail.
+
+        Cheap to write by accident in YAML and impossible to notice afterwards: the rule
+        would evaluate, report a violation, and then grade it as passing.
+        """
+        if self.verdict_on_fail is Verdict.COMPLIANT:
+            raise ValueError(
+                f"rule {self.rule_id!r} has verdict_on_fail=COMPLIANT, so failing it means "
+                "nothing. Use NON_COMPLIANT, or NEEDS_HUMAN when the failure is a question "
+                "about scope rather than a breach."
+            )
+        return self
 
 
 class AllocationRequest(BaseModel):
@@ -277,3 +347,135 @@ class AllocationResponse(BaseModel):
         default=None, description="shadow price; None for policies with no dual"
     )
     budget_spent_inr: float = Field(ge=0)
+
+
+# --------------------------------------------------------------------------------
+# The compliance audit (Phase 4).
+# --------------------------------------------------------------------------------
+
+
+class MandateAuditContext(BaseModel):
+    """Everything a compiled rule is allowed to see about one mandate at one moment.
+
+    This is the *whole* vocabulary of `policy/mandate_policy.yaml`: `policy/loader.py`
+    checks every name in every rule expression against this model's fields, so a rule that
+    reads `amount_in` instead of `amount_inr` fails when the policy file loads rather than
+    evaluating to nothing forever. The alternative -- handing rules a free-form dict -- is
+    what makes rule engines rot: a renamed field silently disables every rule that used it,
+    and the suite stays green because the rules stop firing rather than start failing.
+
+    Three fields carry more weight than the rest:
+
+    * `pre_debit_notice_hours` is `None` when no pre-transaction notification was sent at
+      all, which is a different failure from one sent too late and reads differently in the
+      ledger. Rules guard it with `is not None` before comparing.
+    * `claims_notice_exemption` exists because clause 6(d)'s FASTag/NCMC carve-out is the
+      one place in this circular where the compliance failure runs the *other* way: the
+      breach is claiming an exemption you do not have, and a rule set that only checked
+      obligations would never look for it.
+    * `rail` decides applicability rather than compliance. Clause 2 covers cards, PPI and
+      UPI; eNACH is not in that list, and no amount of good behaviour makes an out-of-scope
+      mandate compliant with a framework that does not reach it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    mandate_id: str
+    rail: Rail
+    category: MandateCategory = MandateCategory.GENERAL
+    amount_inr: float = Field(ge=0, description="the amount about to be debited")
+
+    is_variable_amount: bool = False
+    customer_cap_inr: float | None = Field(
+        default=None, description="clause 4(c): the maximum the customer set, if any"
+    )
+
+    is_first_transaction: bool = False
+    is_modification: bool = Field(
+        default=False, description="a change to, or withdrawal of, an existing mandate"
+    )
+
+    afa_at_registration: bool = True
+    afa_on_first_transaction: bool = True
+    afa_on_modification: bool = True
+    afa_on_this_transaction: bool = False
+
+    validity_period_specified: bool = True
+    withdrawal_facility_offered: bool = True
+    notification_mode_choice_offered: bool = True
+
+    pre_debit_notice_hours: float | None = Field(
+        default=None, description="lead time of the notice actually sent; None if none was"
+    )
+    pre_debit_notice_fields: frozenset[str] = frozenset()
+    claims_notice_exemption: bool = False
+
+    opt_out_offered: bool = True
+    opt_out_afa_validated: bool = True
+
+    post_transaction_notice_sent: bool = True
+    post_transaction_notice_fields: frozenset[str] = frozenset()
+
+    grievance_redressal_available: bool = True
+    customer_charges_inr: float = Field(
+        default=0.0, ge=0, description="clause 10(a): what the customer was charged"
+    )
+    acquirer_compliance_checked: bool = True
+
+    def to_expression_context(self) -> dict[str, object]:
+        """The dict a rule expression is evaluated against.
+
+        Deliberately built from `model_dump` rather than assembled by hand: a field added
+        to this model becomes available to rules immediately, and cannot be added here and
+        forgotten there.
+        """
+        return dict(self.model_dump())
+
+
+class RuleOutcome(BaseModel):
+    """What one compiled rule said about one mandate.
+
+    A skipped rule is recorded, not dropped. "Clause 6(a) did not apply because this is a
+    FASTag mandate" is a different audit trail from "clause 6(a) was never evaluated", and
+    only one of them survives someone asking why the notice rule never fires.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    rule_id: str
+    clause: str
+    applied: bool = Field(description="False when `applies_when` was false for this mandate")
+    passed: bool | None = Field(default=None, description="None when the rule did not apply")
+    verdict_on_fail: Verdict
+    remedy: str | None = Field(default=None, description="set only when the rule failed")
+
+
+class MandateVerdict(BaseModel):
+    """The auditor's structured output for one mandate (T4.2).
+
+    The `reason` is required and the `citations` list must be non-empty for anything other
+    than a clean pass, because an audit finding without a clause reference is an opinion.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    mandate_id: str
+    verdict: Verdict
+    reason: str = Field(min_length=1)
+    citations: list[str] = Field(default_factory=list, description="clauses the verdict rests on")
+    outcomes: list[RuleOutcome] = Field(default_factory=list)
+    decided_by: str = Field(
+        default="rules",
+        description="'rules' when the deterministic engine settled it; 'llm' when a model did",
+    )
+    policy_hash: str = Field(default="", description="the policy version this was decided under")
+
+    @model_validator(mode="after")
+    def _a_finding_cites_a_clause(self) -> Self:
+        if self.verdict is not Verdict.COMPLIANT and not self.citations:
+            raise ValueError(
+                f"verdict {self.verdict} for {self.mandate_id!r} cites no clause. An audit "
+                "finding without a citation is an opinion, and this system is not allowed "
+                "to have opinions about a regulation."
+            )
+        return self

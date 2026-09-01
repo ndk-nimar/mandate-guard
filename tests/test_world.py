@@ -89,6 +89,20 @@ def make_params(**overrides) -> Params:
             "plausible_age_years": [13, 90],
             "default_debit_frequency_days": 30,
         },
+        # Phase 4's model config. Nothing in this file exercises it -- the world harness
+        # never calls a model -- but `Params` requires it, and giving it a Python-side
+        # default instead would put an LLM price in code, which config/params.yaml exists
+        # to prevent.
+        "llm": {
+            "model": "claude-opus-5",
+            "max_tokens": 8000,
+            "effort": "high",
+            "price_input_usd_per_mtok": 5.0,
+            "price_output_usd_per_mtok": 25.0,
+            "price_cache_read_usd_per_mtok": 0.5,
+            "price_cache_write_usd_per_mtok": 6.25,
+            "spend_cap_usd_per_run": 5.0,
+        },
         "seed": 1,
     }
     payload.update(overrides)
