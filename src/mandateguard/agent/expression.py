@@ -45,6 +45,7 @@ __all__ = [
     "ExpressionError",
     "UnknownFieldError",
     "evaluate",
+    "evaluate_tracing",
     "parse",
     "referenced_names",
 ]
@@ -111,14 +112,36 @@ def evaluate(expression: str, context: Mapping[str, Any]) -> bool:
     expression that would evaluate truthily for every non-zero amount, and a rule that
     passes because a rupee figure is non-zero is worse than a rule that fails loudly.
     """
-    value = _eval(parse(expression), context, expression)
+    return evaluate_tracing(expression, context)[0]
+
+
+def evaluate_tracing(expression: str, context: Mapping[str, Any]) -> tuple[bool, set[str]]:
+    """Evaluate, and also report which fields were *actually read* getting there.
+
+    Not the same set as `referenced_names`, and the difference decides verdicts.
+    `referenced_names` is syntax: every name that appears in the string. This is what the
+    evaluation touched, and `and`/`or` short-circuit, so:
+
+        is_variable_amount and customer_cap_inr is not None
+
+    reads both names for a variable mandate and only the first for a fixed one.
+
+    The auditor uses this to decide whether a field the extraction could not determine
+    matters. Using the syntactic set instead makes every fixed-amount mandate depend on
+    `customer_cap_inr` -- a field that decides nothing for it -- and the auditor abstains on
+    mandates it could have graded. That is not a safe direction to be wrong in: it shows up
+    in T4.7 as abstain *precision* collapsing, and in production as a review queue full of
+    mandates nobody needed to look at.
+    """
+    seen: set[str] = set()
+    value = _eval(parse(expression), context, expression, seen)
     if not isinstance(value, bool):
         raise ExpressionError(
             f"{expression!r} evaluated to {value!r} ({type(value).__name__}), not a bool. "
             "A policy rule has to answer yes or no; a truthy value that happens to be "
             "non-empty is not an answer."
         )
-    return value
+    return value, seen
 
 
 # --------------------------------------------------------------------------------
@@ -167,7 +190,7 @@ def _rejected(node: ast.AST, expression: str, why: str) -> ExpressionError:
 # --------------------------------------------------------------------------------
 
 
-def _eval(node: ast.AST, context: Mapping[str, Any], expression: str) -> Any:
+def _eval(node: ast.AST, context: Mapping[str, Any], expression: str, seen: set[str]) -> Any:
     if isinstance(node, ast.BoolOp):
         # Short-circuiting is load-bearing, not an optimisation: rules are written as
         # `x is not None and x >= 24`, and evaluating the right half of that against None
@@ -175,24 +198,24 @@ def _eval(node: ast.AST, context: Mapping[str, Any], expression: str) -> Any:
         if isinstance(node.op, ast.And):
             result: Any = True
             for value in node.values:
-                result = _eval(value, context, expression)
+                result = _eval(value, context, expression, seen)
                 if not result:
                     return result
             return result
         result = False
         for value in node.values:
-            result = _eval(value, context, expression)
+            result = _eval(value, context, expression, seen)
             if result:
                 return result
         return result
 
     if isinstance(node, ast.UnaryOp):
-        return not _eval(node.operand, context, expression)
+        return not _eval(node.operand, context, expression, seen)
 
     if isinstance(node, ast.Compare):
-        left = _eval(node.left, context, expression)
+        left = _eval(node.left, context, expression, seen)
         for op, right_node in zip(node.ops, node.comparators, strict=True):
-            right = _eval(right_node, context, expression)
+            right = _eval(right_node, context, expression, seen)
             try:
                 outcome = _COMPARATORS[type(op)](left, right)
             except TypeError as exc:
@@ -207,6 +230,7 @@ def _eval(node: ast.AST, context: Mapping[str, Any], expression: str) -> Any:
         return True
 
     if isinstance(node, ast.Name):
+        seen.add(node.id)
         if node.id not in context:
             raise UnknownFieldError(
                 f"{expression!r} reads {node.id!r}, which the audit context does not "
@@ -218,7 +242,7 @@ def _eval(node: ast.AST, context: Mapping[str, Any], expression: str) -> Any:
         return node.value
 
     if isinstance(node, ast.Tuple | ast.List | ast.Set):
-        values = [_eval(element, context, expression) for element in node.elts]
+        values = [_eval(element, context, expression, seen) for element in node.elts]
         return set(values) if isinstance(node, ast.Set) else tuple(values)
 
     raise _rejected(node, expression, f"{type(node).__name__} is not allowed")
