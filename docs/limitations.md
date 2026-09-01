@@ -410,3 +410,61 @@ substitution — writing the rupee sign as `Rs.` in clause 8 so that Windows and
 one encoding — is stated in the file. For a hackathon this is enough; for anything that
 matters, the PDF is the artefact, and the clause numbers are what tell a reader where to look.
 
+
+### 8.7 The golden set scores 100%, and the same reader wrote both sides
+
+`docs/llm_eval.md` reports 114/114 exact on the rules arm — verdict *and* citations. That
+number is real and it is not validation.
+
+The twenty compiled rules and the 120 expectations were written in the same session, from
+the same reading of the same circular, by the same reader. A misreading of clause 8(b) would
+have gone into the rule and into the expectation, and the table would show 100% either way.
+An independent test set is one where the person writing the expectations has not seen the
+implementation; that is not what this is, and the document says so where the number is
+rather than in a footnote.
+
+What the set *is* worth is forward-looking: 120 statements about what the circular requires,
+written down before anyone had a reason to prefer a particular answer, each carrying the
+clause it came from. The next time a threshold moves or a guard loosens, this file is what
+notices. That is a regression suite with citations. It is a real thing to have and it is a
+smaller thing than the headline suggests.
+
+**What would close it:** a second reader compiling expectations from the circular without
+seeing `policy/mandate_policy.yaml`, and the disagreements being the finding. That is a
+person-day this build did not have.
+
+### 8.8 The adversarial gap is +0.0, on a set this project wrote to break itself
+
+T4.8's honesty metric is the gap between natural-set and adversarial-set accuracy. It is
+**+0.0 points**: 59 natural cases and 55 adversarial ones, both at 100%.
+
+Read carefully, that is weaker evidence than it looks, for the same reason as §8.7 and one
+more. The adversarial cases are hand-written, by the person who wrote the rules, against the
+boundaries that person already knew were boundaries. An adversarial set's job is to contain
+the cases nobody thought of, and a set written by the implementer is definitionally made of
+cases somebody thought of.
+
+**T4.8's generator is cut** (CUT #2 in `tasks.md`), and the cut is honest rather than
+convenient: a generator is the one part of that task that could not have been faked without
+a credential, because its output is supposed to be surprising. What survives is the
+measurement apparatus and a declared split criterion in `scripts/build_golden.py`, so the
+gap becomes meaningful the moment someone runs a generator against it.
+
+Until then the right reading is: **this gap is a floor on the true one, not an estimate of
+it.** A pitch may say the measurement exists. It may not say the system is robust to
+adversarial input.
+
+### 8.9 What the linter cannot see
+
+`agent/linter.py` reads text, and three of its limits are structural rather than fixable:
+
+* **It cannot see a UI.** The visual form of interface interference — a greyed-out decline
+  next to a bold accept — is invisible to a text checker. Only the wording form is caught.
+* **It matches literal phrases.** A dark pattern written in words nobody listed passes.
+  `policy/dark_patterns.yaml` is a detector, not a definition, and the regulator publishes
+  no list of banned wordings.
+* **It checks amounts for fabrication but not dates.** A date can be written a dozen ways,
+  and a half-working date parser produces false failures — which, inside a
+  regenerate-then-escalate loop, is a queue of humans reviewing correct notices. The amount
+  check is precise because currency-marked numbers are unambiguous; the date check is
+  presence-only.

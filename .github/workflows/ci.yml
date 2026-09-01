@@ -38,6 +38,11 @@ jobs:
       - name: Policy rules cite what they quote
         run: uv run python scripts/compile_policy.py --check
 
+      # The golden set is generated, so a hand-edit to the JSONL is a defect rather
+      # than an update. This fails if the committed file has drifted from its builder.
+      - name: Golden set is current
+        run: uv run python scripts/build_golden.py --check
+
       - name: Tests
         run: uv run pytest
         # RUN_S3 is deliberately unset: the two-process boot is a local/manual gate,
@@ -65,10 +70,17 @@ jobs:
       - name: Regenerate results.md
         run: uv run python scripts/make_results.py
 
+      # GATE 4's second half. Needs no API key: the rules arm scores 114 golden cases
+      # deterministically, and the model arm reports itself as unscored rather than
+      # being skipped. No wall-clock number is written into the document, which is why
+      # this diff can be byte-exact across machines.
+      - name: Regenerate llm_eval.md
+        run: uv run python scripts/make_llm_eval.py
+
       - name: Fail if the committed results drifted
         run: |
-          git --no-pager diff --stat -- docs/results.md docs/img/sweeps.png
-          git diff --exit-code -- docs/results.md docs/img/sweeps.png
+          git --no-pager diff --stat -- docs/results.md docs/img/sweeps.png docs/llm_eval.md
+          git diff --exit-code -- docs/results.md docs/img/sweeps.png docs/llm_eval.md
 
       # Only reached when the diff is clean, so this is the regenerated file and the
       # committed one at once -- useful when the diff *is* dirty and someone needs to see
@@ -81,3 +93,4 @@ jobs:
           path: |
             docs/results.md
             docs/img/sweeps.png
+            docs/llm_eval.md

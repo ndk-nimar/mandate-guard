@@ -586,50 +586,63 @@ AAAI 2022 Whittle index (2h, P2, before T3.8).
 Goal: an LLM layer that is a shipped system, not an API call. The eval suite is what proves
 the difference.
 
-- [ ] **T4.1 — Job 1: Policy compiler.** Claude reads the actual RBI circular text and
+- [x] **T4.1 — Job 1: Policy compiler.** Claude reads the actual RBI circular text and
   compiles it into `mandate_policy.yaml` with clause citations. You review the diff.
   Human-in-the-loop by design; every YAML rule traces back to a clause. **Depends on the
   RBI circular read.**
   **Done when:** there are 10 or more rules in the YAML, each with a clause reference.
 
-- [ ] **T4.2 — Job 2: Mandate auditor.** A structured verdict per mandate: `compliant`,
+- [x] **T4.2 — Job 2: Mandate auditor.** A structured verdict per mandate: `compliant`,
   `non_compliant`, or `needs_human`. The third is a first-class output with a reason, not a
   fallback.
   **Done when:** verdicts validate against the Pydantic schema and `needs_human` is
   reachable.
 
-- [ ] **T4.3 — Job 3: Notice composer.** An RBI-compliant pre-debit notice with a
+- [x] **T4.3 — Job 3: Notice composer.** An RBI-compliant pre-debit notice with a
   piggybacked re-consent CTA.
   **Done when:** it generates a notice.
 
-- [ ] **T4.4 — Deterministic compliance linter.** Plain Python, no LLM. Must assert that
+- [x] **T4.4 — Deterministic compliance linter.** Plain Python, no LLM. Must assert that
   amount, date, opt-out path, at least 24h lead time, and merchant name are present, and
   that dark patterns are absent. Fail leads to regenerate; two failures escalate. **No
   unvalidated LLM text ever reaches a regulated notice.**
   **Done when:** the linter has its own unit tests, including deliberately bad notices.
 
-- [ ] **T4.5 — Job 4: Refusal explainer.** A plain-language, rupee-backed reason for every
+- [x] **T4.5 — Job 4: Refusal explainer.** A plain-language, rupee-backed reason for every
   *not-asked* decision.
   **Done when:** ledger entries carry a human-readable reason string.
 
-- [ ] **T4.6 — Golden set: ~120 mandate edge cases** with expected verdicts, **including
+- [x] **T4.6 — Golden set: ~120 mandate edge cases** with expected verdicts, **including
   expected abstains**.
   **Done when:** `tests/golden/mandates.jsonl` is committed.
 
-- [ ] **T4.7 — LLM eval suite in CI.** Metrics: accuracy, abstain precision and recall,
+- [x] **T4.7 — LLM eval suite in CI.** Metrics: accuracy, abstain precision and recall,
   cost per verdict, p95 latency. Generates `docs/llm_eval.md` on every push. Run the golden
   set through the Batch API at 50% cost — 120 cases per push adds up.
   **Done when:** `docs/llm_eval.md` is CI-generated.
 
-- [ ] **T4.8 — [CUT #2] Red-team agent.** An adversarial generator producing cases designed
+- [~] **T4.8 — [CUT #2, TAKEN] Red-team agent.** An adversarial generator producing cases designed
   to break the auditor: ₹14,999 versus ₹15,001, the FASTag/NCMC exemption, a mid-cycle
   modification, a pre-April-2026 grandfathered mandate, cross-border, the ₹1 lakh insurance
   cap, a variable-amount mandate with a customer cap. Then report **natural-set accuracy
   versus adversarial-set accuracy** — the gap between them is your honesty score.
   **Done when:** the gap number appears in `docs/llm_eval.md`.
 
-> **GATE 4** — `docs/llm_eval.md` is CI-generated and contains the adversarial gap, or
-> states that the red-team arm was cut.
+> **GATE 4 — PASSED.** `docs/llm_eval.md` is CI-generated (regenerated and byte-diffed in
+> the `results` job) and does **both** halves: it carries the natural-versus-adversarial gap
+> — **+0.0 points**, 59 natural against 55 adversarial cases, all exact — and it states that
+> the red-team *generator* was cut, with the reason.
+>
+> **Phase 4 is closed:** T4.1–T4.7 done. Cut #2 (T4.8) was taken, and taken honestly: a
+> generator's value is producing cases nobody thought of, and no credential existed to run
+> one. The measurement apparatus and the declared split criterion survive, so the gap
+> becomes meaningful the moment a generator runs against it.
+>
+> Two things this gate does **not** establish, both in `limitations.md` §8.7–8.8: the same
+> reader wrote the rules and the expectations, so 100% is a regression suite rather than
+> external validation; and the adversarial set is hand-written by that reader, so +0.0 is a
+> floor on the true gap rather than an estimate of it. The model arm — 6 extraction cases —
+> is **unscored**, because no cassette has been recorded (§8.5).
 
 **Interleaved reading (~2h):** NPCI UPI AutoPay mandate lifecycle (1h, P3) · LLM eval
 practice and abstain metrics (1h, P3).

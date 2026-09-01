@@ -111,6 +111,8 @@ uv run python scripts/fit_hazard.py --plot     # T1.7/T1.8  hazard + reliability
 uv run python scripts/run_ladder.py            # T2.1-T2.6  the arms
 uv run python scripts/run_theta.py             # T3.4/T3.5  theta by search; batch vs online
 uv run python scripts/compile_policy.py --check   # T4.1  re-verify every rule against the circular
+uv run python scripts/build_golden.py          # T4.6  the 120-case golden set
+uv run python scripts/make_llm_eval.py         # T4.7  score it -> docs/llm_eval.md
 ```
 
 **`--sample` runs the whole chain on the committed 5,079-subscriber slice in seconds**,
