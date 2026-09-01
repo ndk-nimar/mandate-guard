@@ -43,11 +43,13 @@ that happens anyway splits by the measured natural mix (`mapping.md` §5.6).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import duckdb
 from pydantic import BaseModel, model_validator
 
 from mandateguard.allocator.base import Policy
-from mandateguard.models import Channel, DecisionKind, MandateWeek
+from mandateguard.models import AllocationResponse, Channel, DecisionKind, MandateWeek
 from mandateguard.policy.loader import Params
 from mandateguard.value.price import Pricer
 
@@ -194,8 +196,22 @@ def run(
     policy: Policy,
     params: Params,
     budget_inr_per_week: float | None = None,
+    sink: Callable[[int, AllocationResponse], None] | None = None,
 ) -> RunMetrics:
-    """Run one policy over the horizon and return its metrics."""
+    """Run one policy over the horizon and return its metrics.
+
+    `sink`, when given, is handed every week's `AllocationResponse` -- asked and not-asked
+    alike -- as it is produced. It is how T5.1's ledger gets written without the harness
+    knowing what a ledger is.
+
+    It is an observer, not a branch: the decisions it sees are the decisions the run makes
+    either way, and nothing downstream of the call reads it. That distinction matters here
+    because `RunMetrics` deliberately populates `asks_by_mandate` unconditionally rather
+    than behind a flag, on the grounds that a second code path is a second thing that can
+    drift (`docs/seekha.md` #45). A sink adds no second path through the decision logic;
+    it only decides whether anyone is watching, and 16,000 ledger rows per arm is a cost
+    worth not paying on every sweep point.
+    """
     weeks = params.horizon.weeks
     budget = (
         params.horizon.budget_inr_per_week if budget_inr_per_week is None else budget_inr_per_week
@@ -248,6 +264,9 @@ def run(
             )
         if response.theta_inr is not None:
             theta = response.theta_inr
+        if sink is not None:
+            # After the totality check above, so a sink never sees a partial week.
+            sink(week, response)
 
         asked: dict[str, Channel] = {}
         week_cost = 0.0

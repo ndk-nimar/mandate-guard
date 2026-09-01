@@ -45,3 +45,8 @@ docs/seekha.md
 
 # Claude Code local working directory (worktrees, session state)
 .claude/
+
+# T5.1 decision ledgers. A ledger is a record of a run, not a derived document:
+# committing one would make every rerun a diff, and the property CI checks is the
+# chain (tests/test_ledger.py), not any particular file.
+data/ledger/

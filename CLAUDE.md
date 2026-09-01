@@ -113,6 +113,9 @@ uv run python scripts/run_theta.py             # T3.4/T3.5  theta by search; bat
 uv run python scripts/compile_policy.py --check   # T4.1  re-verify every rule against the circular
 uv run python scripts/build_golden.py          # T4.6  the 120-case golden set
 uv run python scripts/make_llm_eval.py         # T4.7  score it -> docs/llm_eval.md
+uv run python scripts/make_ledger.py --sample  # T5.1  a run's decision ledger
+uv run mandateguard replay --decision-id X     # T5.2  re-run one decision
+uv run mandateguard audit --rail enach         # judge one mandate, clauses named
 ```
 
 **`--sample` runs the whole chain on the committed 5,079-subscriber slice in seconds**,

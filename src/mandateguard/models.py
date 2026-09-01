@@ -274,7 +274,17 @@ class Decision(BaseModel):
 
 class LedgerEntry(BaseModel):
     """One append-only record. Carries everything `replay` needs to reproduce the
-    decision exactly (T5.2)."""
+    decision exactly (T5.2), and the two hashes that make the log tamper-evident (T5.1).
+
+    The six replay fields are `policy_hash`, `model_version`, `seed`, `snapshot_id`, `arm`
+    and the decision's own week. Together they answer "under what did this happen", which
+    is the difference between replaying a decision and making a new one that happens to
+    look similar.
+
+    `prev_hash` and `entry_hash` are filled by `ledger/store.py` on append and are empty on
+    an entry that has not been written yet -- an unwritten record is not part of any chain,
+    and giving it a plausible-looking hash would be the one lie a ledger cannot afford.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -284,6 +294,28 @@ class LedgerEntry(BaseModel):
     model_version: str
     seed: int
     created_at: date
+
+    run_id: str = Field(default="", description="which run produced this decision")
+    arm: str = Field(default="", description="the allocator arm, e.g. P4")
+    snapshot_id: str = Field(default="", description="the book this decision was made against")
+    explanation: str = Field(
+        default="",
+        description="T4.5's plain-language reason; presentation, not the decision itself",
+    )
+    """Kept apart from `decision.reason` on purpose, and the separation was forced by a bug.
+
+    `decision.reason` is the allocator's own justification, and it is what `replay` (T5.2)
+    reproduces byte for byte. The first version of the ledger writer *overwrote* it with the
+    refusal explainer's plain-language sentence, which made every not-asked decision
+    permanently unreplayable: the recorded reason was no longer a thing the allocator had
+    ever produced, so a correct replay reported a mismatch on every row.
+
+    So the two live side by side. One is the record; the other is how the record is read
+    aloud, and a change to the second must never make the first fail to reproduce.
+    """
+
+    prev_hash: str = Field(default="", description="the previous entry's hash; set on append")
+    entry_hash: str = Field(default="", description="this entry's hash; set on append")
 
 
 class PolicyRule(BaseModel):

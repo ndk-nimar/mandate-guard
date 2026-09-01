@@ -653,11 +653,11 @@ practice and abstain metrics (1h, P3).
 
 Goal: everything that turns working code into a submission.
 
-- [ ] **T5.1 — `ledger/` append-only JSONL.** Every decision, **asked and not-asked**, with
+- [x] **T5.1 — `ledger/` append-only JSONL.** Every decision, **asked and not-asked**, with
   reason, rupee number, policy hash, model version, seed, and template ID.
   **Done when:** a full eval run produces a ledger and a test asserts append-only.
 
-- [ ] **T5.2 — `replay`.** `mandateguard replay --decision-id X` re-runs any historical
+- [x] **T5.2 — `replay`.** `mandateguard replay --decision-id X` re-runs any historical
   decision from `(policy_hash, model_version, seed, snapshot)`. Payments engineers
   recognise this instantly.
   **Done when:** replaying a decision reproduces it byte-identically.
