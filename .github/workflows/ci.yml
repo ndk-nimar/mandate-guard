@@ -48,6 +48,12 @@ jobs:
         # RUN_S3 is deliberately unset: the two-process boot is a local/manual gate,
         # not a CI one. The in-process API contract test still runs here.
 
+      # T5.4. Run again on its own so a chaos failure is visible in the job list rather
+      # than buried in a 560-test summary -- "the system degraded" is a different claim
+      # from "the tests passed" and deserves its own green tick.
+      - name: Chaos suite
+        run: uv run pytest tests/test_chaos.py tests/test_safety.py -q
+
   # GATE 2. Not "the script runs" -- "the script produces the file that is committed".
   # A stranger's fork has to regenerate results.md byte for byte, and the only way to
   # know that is to regenerate it here, on a different OS from the one it was written

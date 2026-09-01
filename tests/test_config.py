@@ -125,6 +125,14 @@ def params_payload(**overrides):
         "intervention": dict(INTERVENTION),
         "horizon": {"weeks": 12, "budget_inr_per_week": 500.0},
         "india": dict(INDIA),
+        "safety": {
+            "mode": "shadow",
+            "kill_switch_file": "data/KILL",
+            "max_sends_per_window": 500,
+            "window_seconds": 3600,
+            "max_spend_inr_per_run": 6000.0,
+            "max_model_age_days": 30,
+        },
         "llm": dict(LLM),
         "seed": 1,
     }

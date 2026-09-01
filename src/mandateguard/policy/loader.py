@@ -258,6 +258,37 @@ class LLMParams(BaseModel):
         return self
 
 
+class SafetyParams(BaseModel):
+    """Operational limits (T5.3). None of these are swept.
+
+    A spend cap a sweep could raise is not a cap, and a mode a sweep could flip is not a
+    default. `eval/sweep.py` varies modelling constants; these are not that.
+    """
+
+    mode: str
+    kill_switch_file: str
+    max_sends_per_window: int = Field(gt=0)
+    window_seconds: int = Field(gt=0)
+    max_spend_inr_per_run: float = Field(ge=0)
+    max_model_age_days: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _mode_is_one_of_two(self) -> SafetyParams:
+        """A typo must not silently mean "live".
+
+        `mode: shaddow` under a truthy check reads as not-shadow, and the system starts
+        contacting customers because someone misspelled the word that was supposed to stop
+        it. So the field is checked against a closed set rather than compared to a string.
+        """
+        if self.mode not in {"shadow", "live"}:
+            raise ValueError(
+                f"safety.mode is {self.mode!r}; it must be 'shadow' or 'live'. A value that "
+                "is neither would be read as not-shadow by any truthiness check, which "
+                "turns a typo into a live system."
+            )
+        return self
+
+
 class Params(BaseModel):
     channels: list[Channel]
     value: ValueParams
@@ -266,6 +297,7 @@ class Params(BaseModel):
     horizon: HorizonParams
     india: IndiaParams
     llm: LLMParams
+    safety: SafetyParams
     seed: int
 
     @model_validator(mode="after")

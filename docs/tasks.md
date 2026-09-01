@@ -662,13 +662,13 @@ Goal: everything that turns working code into a submission.
   recognise this instantly.
   **Done when:** replaying a decision reproduces it byte-identically.
 
-- [ ] **T5.3 — `safety/`.** Shadow mode by default (propose, never act), kill switch, spend
+- [x] **T5.3 — `safety/`.** Shadow mode by default (propose, never act), kill switch, spend
   cap, rate limiter, and the degradation ladder: LLM down leads to rules-only; a stale model
   leads to the conservative floor; a policy-hash mismatch halts and alerts.
   **Done when:** **a test proves the spend cap cannot be crossed**, and every ladder step
   has its own test.
 
-- [ ] **T5.4 — Chaos tests in CI.** Kill the LLM, corrupt the policy file, feed nulls. The
+- [x] **T5.4 — Chaos tests in CI.** Kill the LLM, corrupt the policy file, feed nulls. The
   system must degrade, not crash.
   **Done when:** the chaos suite is green in CI.
 

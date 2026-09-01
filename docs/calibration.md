@@ -313,6 +313,12 @@ is what moved the shipped `(uplift, backfire)` point from the wrong side of `res
 parameters, this constant needs either a measurement or its own sweep axis. It currently
 has neither.
 
+**`safety.max_model_age_days: 30`.** The age at which the hazard model is considered stale
+and the system drops to the conservative floor. A decision, not a measurement: the KKBox
+frame gives no basis for a drift half-life, and inventing one would be a number without an
+origin. Thirty days is a plausible operational default and nothing more. What it triggers is
+defended in `limitations.md` §8.11; what it rests on is this paragraph.
+
 **Channel efficacy priors.** Not measurements of anything. They are priors, they are
 labelled as priors in `params.yaml`, and T2.8's sensitivity grid is the entire reason the
 project can carry them without claiming them.

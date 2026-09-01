@@ -468,3 +468,55 @@ adversarial input.
   regenerate-then-escalate loop, is a queue of humans reviewing correct notices. The amount
   check is precise because currency-marked numbers are unambiguous; the date check is
   presence-only.
+
+### 8.10 The safety layer's limits are process-shaped
+
+`safety/guard.py` is the only path to acting, and three of its properties are weaker than
+the words "spend cap" and "rate limiter" suggest:
+
+* **The counters are in-process.** Two workers each get the whole allowance, so the rate
+  limit and the spend cap are per-process rather than per-system. Making them global needs
+  shared state this project does not have. A limiter that *looked* global and was not would
+  be worse than one that says so.
+* **The kill switch has no authorisation.** It is a file, and anyone with write access to
+  the directory can create or delete it. That is the point at 02:00, when the person who
+  needs to stop a live system has a shell and may not have a deploy pipeline — and it is a
+  weakness at every other hour.
+* **Nothing records who flipped the mode.** `safety.mode: live` is a line in a YAML file.
+  Git says who committed it; nothing in the running system says who deployed it.
+
+**What the guard does guarantee**, and it is tested rather than asserted: a refused action
+is never charged, the cap is checked before the spend rather than after it, shadow mode
+consumes the allowance so a dry run is informative about the live one, and the worst rung of
+the degradation ladder wins when several apply.
+
+### 8.11 A stale model drops the system to the floor, on an unmeasured threshold
+
+`safety.max_model_age_days: 30` decides when the hazard model is too old to spend money on.
+It is a **decision, not a measurement**: the KKBox frame gives no basis for a drift
+half-life, and inventing one would be a number without an origin. Thirty days is a
+plausible operational default and nothing more, which is why it is in `calibration.md` §5.
+
+The rung it triggers is the counter-intuitive one and worth defending explicitly. The
+instinct is that an old model beats no model. It does not: an old model still outputs a
+confident hazard, the allocator still spends real rupees against it, and nothing in the
+output looks stale. Not asking is the only action whose cost stays bounded when the input
+cannot be trusted.
+
+### 8.12 The refusal explainer accepted a non-answer, and a chaos test found it
+
+Recorded because of how it was found rather than what it was.
+
+The explainer lets a model rewrite its deterministic sentence and checks the rewrite for
+**invented rupee figures**. That check asks "is every number here a real one" — and a
+rewrite containing *no* numbers passes it trivially. A chaos client returning control
+characters and unrelated prose was therefore accepted and would have been written into the
+ledger as the reason a customer was not contacted.
+
+The general shape: **a checker that only looks for wrong answers accepts every non-answer.**
+
+Three cheap plausibility checks now sit beside the fabrication one — no control characters,
+length bounds, and at least one of the figures it was given when the refusal turns on any.
+What none of them can check is whether the sentence says the *right* thing about the right
+numbers; that needs a second model grading the first, which is a different system and not
+something a fallback path should depend on.

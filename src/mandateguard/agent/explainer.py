@@ -233,6 +233,15 @@ def explain_deterministically(facts: RefusalFacts) -> str:
     )
 
 
+MIN_REWRITE_CHARS = 20
+MAX_REWRITE_CHARS = 1200
+"""Bounds on a rewrite, and both ends earn their place.
+
+Below 20 characters nothing can be an explanation of a rupee-backed refusal. Above 1200 it
+is not the "two or three short sentences" the prompt asked for, and it will not fit the
+ledger row or the `/explain` response that quote it."""
+
+
 class Explanation(BaseModel):
     """The explanation, and whether a model touched it."""
 
@@ -242,8 +251,9 @@ class Explanation(BaseModel):
     text: str = Field(min_length=1)
     source: str = Field(description="'deterministic' or 'llm'")
     rejected_rewrite: str = Field(
-        default="", description="a model rewrite that failed the fabrication check"
+        default="", description="a model rewrite that failed one of the checks"
     )
+    rejected_because: str = Field(default="", description="which check it failed")
     invented_amounts: list[str] = Field(default_factory=list)
 
 
@@ -284,12 +294,14 @@ class RefusalExplainer:
 
         rewrite = result.text.strip()
         invented = _invented_amounts(rewrite, facts)
-        if invented:
+        problem = invented and f"invents {', '.join(invented)}" or _implausible(rewrite, facts)
+        if problem:
             return Explanation(
                 mandate_id=facts.mandate_id,
                 text=baseline,
                 source="deterministic",
                 rejected_rewrite=rewrite,
+                rejected_because=problem,
                 invented_amounts=invented,
             )
         return Explanation(mandate_id=facts.mandate_id, text=rewrite, source="llm")
@@ -304,6 +316,44 @@ class RefusalExplainer:
         if decision.kind is not DecisionKind.NOT_ASKED:
             return decision
         return decision.model_copy(update={"reason": self.explain(facts).text})
+
+
+def _implausible(text: str, facts: RefusalFacts) -> str:
+    """Reasons to reject a rewrite that invents no numbers but is still not an explanation.
+
+    Found by a chaos test (T5.4), and the gap is worth naming. The fabrication check asks
+    "is every rupee figure here a real one" -- and a rewrite containing NO figures passes it
+    trivially. So a response of control characters and unrelated prose was accepted and
+    written into the ledger as the reason a customer was not contacted -- because it
+    invented nothing.
+
+    A checker that only looks for wrong answers accepts every non-answer.
+
+    The three checks below are the cheap, defensible half of "is this an explanation":
+
+    * **Control characters.** Text a human wrote and a human will read has none.
+    * **Length.** See `MIN_REWRITE_CHARS` / `MAX_REWRITE_CHARS`.
+    * **At least one of the figures it was given**, when there are any. An explanation of a
+      rupee-backed refusal that names no rupees has dropped the only part that makes it
+      auditable. `FLOOR` refusals carry no figures at all, so the check does not apply to
+      them -- which is correct rather than a loophole: there is no number to drop.
+
+    What this still cannot check is whether the sentence says the *right* thing about the
+    right numbers. That needs a second model grading the first, which is a different system
+    and is not what a fallback path should depend on.
+    """
+    if any(ord(ch) < 32 and ch not in chr(10) + chr(9) for ch in text):
+        return "contains control characters"
+    if len(text) < MIN_REWRITE_CHARS:
+        return f"is {len(text)} characters; too short to be an explanation"
+    if len(text) > MAX_REWRITE_CHARS:
+        return f"is {len(text)} characters; longer than a ledger row can carry"
+
+    allowed = facts.allowed_amounts()
+    meaningful = {a for a in allowed if a not in {"0", "0.00"}}
+    if meaningful and not currency_amounts(text):
+        return "names no rupee figure, though the refusal turns on one"
+    return ""
 
 
 def _invented_amounts(text: str, facts: RefusalFacts) -> list[str]:

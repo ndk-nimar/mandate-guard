@@ -103,6 +103,14 @@ def make_params(**overrides) -> Params:
             "price_cache_write_usd_per_mtok": 6.25,
             "spend_cap_usd_per_run": 5.0,
         },
+        "safety": {
+            "mode": "shadow",
+            "kill_switch_file": "data/KILL",
+            "max_sends_per_window": 500,
+            "window_seconds": 3600,
+            "max_spend_inr_per_run": 6000.0,
+            "max_model_age_days": 30,
+        },
         "seed": 1,
     }
     payload.update(overrides)

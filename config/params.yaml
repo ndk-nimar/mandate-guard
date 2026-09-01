@@ -196,3 +196,37 @@ llm:
   # roughly 0.55 USD; 5.00 leaves room for a red-team arm and retries without leaving
   # room for a runaway loop.
   spend_cap_usd_per_run: 5.00
+
+# T5.3 -- the safety layer. Every number here is an operational limit, not a modelling
+# constant, so none of them are swept: a spend cap that a sweep could raise is not a cap.
+safety:
+  # Shadow by default, and the default is the point. A system whose live mode is one
+  # config edit away from shipping is a system that ships live by accident; a system
+  # whose SHADOW mode is the default ships nothing by accident. Flipping this is a
+  # deliberate act by someone who can be named.
+  mode: shadow
+
+  # Touch this file to stop the system. A file rather than an env var or an API call
+  # because the person who needs to stop a live system at 02:00 has a shell, and may not
+  # have a deploy pipeline or the service's own admin endpoint -- which, if the service
+  # is the thing misbehaving, is exactly what they cannot rely on.
+  kill_switch_file: data/KILL
+
+  # Rate limit on outbound contacts, independent of the rupee budget. The budget stops
+  # the system spending too much; this stops it spending correctly but too fast. They
+  # are different failures: a bug that prices every ask at zero passes the budget check
+  # and empties the book into a send queue in one minute.
+  max_sends_per_window: 500
+  window_seconds: 3600
+
+  # Ceiling on the whole run's contact spend. horizon.weeks * horizon.budget_inr_per_week
+  # is 12 * 500 = 6000, so this binds only when a week overspends -- which eval/world.py
+  # already refuses. It is here as the second wall: the harness's check protects the
+  # experiment, this one protects the money.
+  max_spend_inr_per_run: 6000.0
+
+  # A hazard model older than this drops the system to the conservative floor (contact
+  # nobody) rather than to its own stale predictions. 30 days is a decision, not a
+  # measurement: the KKBox frame gives no basis for a drift half-life, and inventing one
+  # would be a number without an origin. Recorded in docs/calibration.md 5.
+  max_model_age_days: 30
