@@ -672,7 +672,7 @@ Goal: everything that turns working code into a submission.
   system must degrade, not crash.
   **Done when:** the chaos suite is green in CI.
 
-- [ ] **T5.5 — FastAPI service.** `/allocate`, `/explain`, `/ledger`, `/replay`.
+- [x] **T5.5 — FastAPI service.** `/allocate`, `/explain`, `/ledger`, `/replay`.
   **Done when:** the OpenAPI docs render and all four return valid responses.
 
 - [ ] **T5.6 — [CUT #5] Streamlit surface.** Book view, budget dial, six-arm chart,
