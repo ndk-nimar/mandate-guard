@@ -37,16 +37,16 @@ and are pinned to specific days: the RBI circular (before T4.1) and MCKP/LP dual
 Goal: an empty but *green* repository, plus early answers to the three questions that
 could break the plan later.
 
-- [ ] **T0.1 — Repo skeleton.** `git init`, `uv init`, `src/` layout with package
+- [x] **T0.1 — Repo skeleton.** `git init`, `uv init`, `src/` layout with package
   `mandateguard` and subpackages `data/ risk/ value/ allocator/ policy/ agent/ ledger/
   safety/ app/ eval/`. Plus `docs/ specs/ tests/ config/ notebooks/ scripts/`.
   `.gitignore` excluding `data/raw/`, `.env`, `*.pkl`.
   **Done when:** `uv run python -c "import mandateguard"` succeeds.
 
-- [ ] **T0.2 — `docs/stack.md`.** Written. First real commit.
+- [x] **T0.2 — `docs/stack.md`.** Written. First real commit.
   **Done when:** committed, and every row has a rejected alternative.
 
-- [ ] **T0.3 — SPIKE S1: LP duals from PuLP/CBC on Windows.** ~30 minutes. Solve a 5-item
+- [x] **T0.3 — SPIKE S1: LP duals from PuLP/CBC on Windows.** ~30 minutes. Solve a 5-item
   MCKP LP relaxation, read the budget constraint's dual (`constraint.pi`), assert it is a
   finite non-zero float. **This is the single highest-risk technical assumption in the
   project** — the shadow price theta is the headline executive number and it comes from
@@ -60,28 +60,28 @@ could break the plan later.
   back to Telco Customer Churn — it has no `is_auto_renew`, which weakens the Tier-1 claim,
   and `docs/limitations.md` must say so.
 
-- [ ] **T0.5 — SPIKE S3: two-process demo on Windows.** Prove uvicorn and Streamlit start
+- [x] **T0.5 — SPIKE S3: two-process demo on Windows.** Prove uvicorn and Streamlit start
   from one command and talk to each other over httpx.
   **Done when:** `scripts/dev.py` starts both and Streamlit renders one number fetched from
   FastAPI.
 
-- [ ] **T0.6 — Domain models.** Pydantic v2: `Mandate`, `Channel`, `Decision`,
+- [x] **T0.6 — Domain models.** Pydantic v2: `Mandate`, `Channel`, `Decision`,
   `LedgerEntry`, `PolicyRule`, `AllocationRequest`/`AllocationResponse`. These are the
   contract every later layer imports. Mirror Razorpay Subscriptions/Tokens field naming
   where possible.
   **Done when:** models import and a JSON round-trip test passes.
 
-- [ ] **T0.7 — `Policy` interface.** Abstract base:
+- [x] **T0.7 — `Policy` interface.** Abstract base:
   `allocate(mandates, budget, week) -> list[Decision]`. Six implementations follow; write
   the ABC and a `NoAskPolicy` stub now.
   **Done when:** `NoAskPolicy` returns empty decisions and a test asserts it.
 
-- [ ] **T0.8 — `config/params.yaml` and `policy/mandate_policy.yaml` v0.** Empty-but-valid
+- [x] **T0.8 — `config/params.yaml` and `policy/mandate_policy.yaml` v0.** Empty-but-valid
   skeletons with schema validation. Every calibration constant lands here; nothing
   hard-coded.
   **Done when:** the loader test passes on both files.
 
-- [ ] **T0.9 — CI skeleton.** GitHub Actions, one ubuntu job: `uv sync`, `ruff check`,
+- [x] **T0.9 — CI skeleton.** GitHub Actions, one ubuntu job: `uv sync`, `ruff check`,
   `ruff format --check`, `pytest`. Create the public repo with `gh repo create`.
   **Done when:** green check on GitHub.
 
@@ -678,27 +678,74 @@ Goal: everything that turns working code into a submission.
 - [ ] **T5.6 — [CUT #5] Streamlit surface.** Book view, budget dial, six-arm chart,
   sensitivity heatmap, ledger tab, per-mandate rupee breakdown. Talks to FastAPI over httpx.
   **Done when:** the budget dial moves and the six-arm chart moves with it.
+  **CUT, 2026-09-03**, at position 5 of the documented cut order and not in a panic —
+  `app/ui.py` stays as the T0.5 two-process spike so the API boundary keeps being exercised,
+  and the charts ship as the PNGs `repro` regenerates. What it costs is real and is said in
+  `architecture.md` §4: a judge cannot *feel* the frontier move, they have to read it off
+  `results.md` §4.
 
-- [ ] **T5.7 — Remaining docs.** `problem.md` (framed by the Chrome 300M-user result),
+- [x] **T5.7 — Remaining docs.** `problem.md` (framed by the Chrome 300M-user result),
   `prior_art.md` (the ten-system table — nobody writes this doc in a hackathon),
   `architecture.md`, `adr/`, and a final pass on `eval.md`.
   **Done when:** all nine docs exist and cross-link.
+  **Done:** `prior_art.md`, `architecture.md`, ADR 0004 (the model does not decide) and ADR
+  0005 (shadow mode and the degradation ladder). **`README.md` was empty** and is now the
+  entry point. Cross-linking is enforced rather than promised — `tests/test_docs.py` walks
+  every relative link in every submitted document and fails on one that resolves to nothing,
+  which is the test that would have caught `prior_art.md` on day one.
+  **Two numbers moved, both against us.** Reading the papers corrected LinkedIn's triple
+  (−64.5%/−47% → **−35.5%/−53.0%**, widening `eval.md` §6's gap from 1.5x to 2.8x) and
+  demoted Chrome's "midpoint of a published 17–31%" to a **chosen value under an "up to
+  30%" ceiling**. Propagated to `eval/shape.py`, `eval.md`, `calibration.md`,
+  `limitations.md` and `problem.md`. `calibration.md` §4 also gained the
+  `backfire_first_ask` row that `limitations.md` §2.1 had been asking for since Phase 3.
 
-- [ ] **T5.8 — One-command reproduction.** `uv run mandateguard repro` runs the full eval on
+- [x] **T5.8 — One-command reproduction.** `uv run mandateguard repro` runs the full eval on
   the committed sample and regenerates `results.md` and every plot.
   **Done when:** verified in a fresh clone in a temporary directory.
+  **Done:** `eval/repro.py` + `mandateguard repro --check`. Three steps, **2m51s**, no
+  download and no API key: `results.md`, `sweeps.png`, `llm_eval.md`, `segments.png` — all
+  four **byte-identical** on Windows against files CI regenerates on ubuntu. CI now runs
+  this exact command instead of its own sequence of scripts, so the documented path and the
+  enforced path cannot drift apart.
+  **The part that is not a green tick:** the report always prints what it *cannot* rebuild —
+  `reliability.png` and `eval.md` §2–§3 are full-data, and rebuilding them from the sample
+  would swap a 1.4M-mandate Brier score for a 5,079-subscriber one behind an unchanged
+  filename. `tests/test_repro.py` asserts that list keeps being printed.
 
-- [ ] **T5.9 — 5-minute video.** 0:00 problem, in numbers not adjectives · 0:40 the three
+- [~] **T5.9 — 5-minute video.** 0:00 problem, in numbers not adjectives · 0:40 the three
   gaps · 1:05 the Chrome result · 1:10 the evidence stack · 1:40 live demo · 3:00 refusal
   ledger · 3:40 **live chaos test** · 4:15 the Subscription Recovery collision · 4:45
   limitations, unprompted.
   **Done when:** recorded and under 5:00.
+  **Script done, recording NOT done (2026-09-03).** `docs/video_script.md` has the beat
+  sheet, the spoken lines, the commands to run live, and a budget that sums to 5:00 exactly
+  with the cut order named. The 1:05 beat had to be rewritten: it was built on the Chrome
+  figure T5.7 corrected, so it now shows the correction on screen instead of the claim.
+  **This is the one open item. It needs a person and a microphone.**
 
-- [ ] **T5.10 — Interview answer sheet.** Write the eight panel answers into
+- [x] **T5.10 — Interview answer sheet.** Write the eight panel answers into
   `docs/interview_prep.md`. Not submitted — this one is for you.
   **Done when:** all eight are written.
+  **Done:** eight questions, each with the thirty-second answer, the follow-up they will
+  actually ask, and the file to open. Gitignored, like the journals, because "not
+  submitted" is a property worth enforcing rather than remembering.
 
-> **GATE 5** — A stranger clones the repo and reproduces the full eval with one command.
+> **GATE 5 — PASSED (2026-09-04), and verified the hard way.** A fresh-clone-equivalent
+> tree was exported with `git checkout-index`, synced with `uv sync --frozen`, and run:
+> `uv run mandateguard repro --check` rebuilt every sample-derived artifact from the
+> committed slice and reported **byte-identical**. CI runs that same command on ubuntu
+> against files committed from Windows, and it names the two full-data artifacts it cannot
+> rebuild rather than reporting an unbroken column of `ok`.
+>
+> **The fresh run also took 64m01s, against 2m51s in the working copy** — and the finding
+> was not in the code. `.env` is gitignored, so the fresh tree inherited no
+> `MANDATEGUARD_DATA_DIR` and wrote its derived frames onto a cloud-synced path. Moving
+> only that variable brought the same tree back to about three minutes: **81s against
+> 3,668s** on the `segments` step alone, byte-identical output both ways. Determinism was
+> being checked and tractability was not. `repro` now names its data directory on the first
+> line of every report, and `README.md`, `CLAUDE.md`, `architecture.md` §2.5 and
+> `.env.example` all carry the measurement rather than the unqualified "three minutes".
 
 ---
 
