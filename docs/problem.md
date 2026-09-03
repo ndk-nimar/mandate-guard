@@ -255,9 +255,17 @@ groups.
 ## 7. Irritation is a real, measurable, durable cost
 
 The premise that over-contact carries lasting cost is not a vendor-blog assertion. Google
-Chrome's quiet permission UI (USENIX Security 2021, ~300M users) is the strongest public
-evidence available: the softer prompt reduced permission **grants by only 2–5%**, but
-reduced **permanent denials by 17.5–31.4%**.
+Chrome's quiet permission UI (USENIX Security 2021) is the strongest public evidence
+available: over an A/B test on **~40M users and ~100M prompts**, the softer prompt cost
+**less than 5% of grants** (10% → 9.8% desktop, 20.1% → 19.1% Android) while producing
+**up to 30% fewer unnecessary actions on the prompts**.
+
+> **Corrected 2026-09-02 (T5.7).** This paragraph previously said *"~300M users"* and
+> *"reduced permanent denials by 17.5–31.4%"*. The paper reports neither figure. It was
+> read on 2026-09-02, and [`prior_art.md` §2](./prior_art.md) quotes what it does say. The
+> distinction that matters downstream: *fewer unnecessary actions on a prompt* is not the
+> same claim as *fewer permanent refusals*, and `value.backfire_avoided_per_softer_step`
+> was built on the second reading.
 
 Two things follow, and both are load-bearing here:
 

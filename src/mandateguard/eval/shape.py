@@ -1,12 +1,20 @@
 """T3.6 -- does our result have the shape LinkedIn's had? And if not, what does that say?
 
 LinkedIn published three numbers when they replaced send-everything-eligible with an
-optimiser (KDD 2016): notification **volume -64.5%**, **sessions -1.8%**, **complaints
--47%**. That triple is the most useful external check this project has, and it is useful
+optimiser (KDD 2016): notification **volume -35.5%**, **sessions -1.8%**, **complaints
+-53.0%**. That triple is the most useful external check this project has, and it is useful
 because of its *shape* rather than its magnitudes: send far less, lose almost none of the
 thing the sends were for, and cut the harm by a lot.
 
-If an allocator claims to cut volume by two thirds and *also* claims engagement went up,
+**Two of those three were wrong here until 2026-09-02, and the correction went against
+us.** The paper's Table 3 reports *retained levels* against a send-all control of 100 --
+send 64.51, complaint 46.97, session 98.16 -- and this project had been reading the first
+two as reductions while correctly turning the third into 100 - 98.16 = 1.84. The same
+table, read two ways, inside one triple. `docs/prior_art.md` §1 shows the three sentences
+in the paper that settle it. The corrected volume figure widens §6's gap from 1.5x to
+2.8x, and the corrected complaint figure widens that gap too.
+
+If an allocator claims to cut volume by a third and *also* claims engagement went up,
 the honest first reaction is that something is wrong with the simulator, not that we beat
 LinkedIn.
 
@@ -95,22 +103,26 @@ class Shape(BaseModel):
         return self.volume_delta < 0 and (self.complaint_delta is None or self.complaint_delta < 0)
 
 
-LINKEDIN = Shape(volume_delta=-0.645, engagement_delta=-0.018, complaint_delta=-0.47)
+LINKEDIN = Shape(volume_delta=-0.3549, engagement_delta=-0.0184, complaint_delta=-0.5303)
 """LinkedIn, KDD 2016 -- the only published triple available to check our shape against.
 
-**Its citation chain does not currently close, and that is recorded rather than glossed.**
-`docs/calibration.md` §5 lists this triple and points at `docs/prior_art.md` for the exact
-claim and page reference. That document has never been written -- it is a Phase 5
-deliverable (`docs/tasks.md` T5.x) and `problem.md` links to it too, so both links are
-dead today. So these three numbers reach the code from this project's own build plan, and
-`CLAUDE.md` §3 is explicit that "it was in the build plan" is not a source.
+**Read out of the paper on 2026-09-02, and corrected.** Table 3, row `All`, columns headed
+"A/B Test (%)": send **64.51**, complaint **46.97**, session **98.16**. Those are levels
+retained against a send-all control of 100, not reductions -- the Constraint column reads
+"no more than 60% of the maximum possible complaints" and "at least 98.5% of the maximum
+achievable sessions", the 46.97 satisfies the first, the 98.16 misses the second, and the
+paper says so: "All constraints are being satisfied in the A/B test results, except for a
+minor violation of the global sessions constraint."
 
-That does not make the comparison worthless: §6's finding is a **mismatch**, and a
-mismatch against a slightly mis-transcribed reference is still a mismatch, since the gap
-is 35 percentage points on volume and a sign flip on retention rather than anything a
-transcription error could manufacture. But the triple must not be quoted as verified
-until someone has read it out of the paper, and `calibration.md` §6 now carries that as a
-job."""
+So the deltas are -35.49%, -53.03% and -1.84%, and the numbers this project used until
+today were -64.5%, -47% and -1.8%. The first two were the retained levels read as
+reductions; the third was computed correctly. One table, two readings, one triple.
+
+The correction makes §6's mismatch **worse**: LinkedIn cut 35.5% of sends where this
+allocator cuts 99.3%, so the gap is 2.8x rather than 1.5x. The retention sign flip is
+unchanged, and it was always the more interesting half.
+
+Full working, including the sentences that settle the reading: `docs/prior_art.md` §1."""
 
 
 def _delta(challenger: float, reference: float) -> float | None:
@@ -255,12 +267,13 @@ def format_comparison(
             "supposed to *raise* the thing the asks were for.",
             "",
             "There is a coherent reading and it is not a flattering one. LinkedIn's "
-            "marginal notification was worth roughly nothing -- they dropped two thirds of "
-            "their volume and lost 1.8% of sessions, which is what near-zero value looks "
-            "like. In this model the marginal ask is worth *less* than nothing, because "
-            "backfire makes contacting a healthy mandate actively harmful. So the "
-            "reference arm is not merely wasteful here, it is destructive, and declining "
-            "to do what it does shows up as a gain.",
+            "marginal notification was worth roughly nothing -- they dropped "
+            f"{abs(LINKEDIN.volume_delta):.0%} of their volume and lost "
+            f"{abs(LINKEDIN.engagement_delta or 0):.1%} of sessions, which is what "
+            "near-zero value looks like. In this model the marginal ask is worth *less* "
+            "than nothing, because backfire makes contacting a healthy mandate actively "
+            "harmful. So the reference arm is not merely wasteful here, it is destructive, "
+            "and declining to do what it does shows up as a gain.",
         ]
     return "\n".join(lines)
 

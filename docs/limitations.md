@@ -86,12 +86,14 @@ kills a mandate. It is the parameter that decides §1's verdict, it decides the 
 
 Two things make it worse than the other three entries in this section.
 
-**It is not in `calibration.md` §4.** `eval.md` §6.2 cites that section for it — "no public
-measurement (`calibration.md` §4)" — but the table there does not carry a row for it. So the
-project's own register of unsourced constants is missing the constant its headline comparison
-depends on. [`CLAUDE.md`](../CLAUDE.md) §3 allows a number four origins and *"it is in
-`params.yaml`"* is not one of them. **This is the first thing to fix in the documentation,
-and it is cheap: add the row.**
+**It was not in `calibration.md` §4 — ~~fixed 2026-09-02 (T5.7)~~.** `eval.md` §6.2 cited
+that section for it — "no public measurement (`calibration.md` §4)" — while the table there
+carried no row for it. For three phases the project's own register of unsourced constants
+was missing the constant its headline comparison depends on, and every reader who followed
+the citation landed on a table that did not mention it. [`CLAUDE.md`](../CLAUDE.md) §3
+allows a number four origins and *"it is in `params.yaml`"* is not one of them. The row is
+there now, along with `backfire_twelfth_ask` and `uplift_scale`. **The fix was one table
+row and it took four days to make, because nothing fails when a document is silent.**
 
 **It is swept, and the sweep does not rescue it.** [`eval.md` §6.2](./eval.md) runs the full
 range and finds that *no* value reproduces LinkedIn's shape — so the mismatch is not a knob
@@ -100,13 +102,24 @@ that was mis-set. But the same sweep moves this project's own headline lift from
 that swings the headline across the entire credible range, is carrying more weight than any
 unmeasured constant should.
 
-### 2.2 Chrome's 17–31%, applied seven times
+### 2.2 A chosen constant under a published ceiling, applied seven times
 
-`value.backfire_avoided_per_softer_step: 0.24` is the midpoint of a genuinely published
-range — Chrome's quieter permission surface avoided 17–31% of permanent refusals across
-~300M users. That range is real.
+**This entry was itself wrong until 2026-09-02, and the correction makes it worse.** It
+read: *"`value.backfire_avoided_per_softer_step: 0.24` is the midpoint of a genuinely
+published range — Chrome's quieter permission surface avoided 17–31% of permanent refusals
+across ~300M users. That range is real."*
 
-What is **not** published is that the same discount applies at *every rung* of a
+**That range is not real.** T5.7 opened the paper. The abstract reports an A/B test over
+~40M users and *"up to 30% fewer unnecessary actions on the prompts"* — one upper bound,
+about actions taken on a prompt, not about permanent refusals. There is no 17–31%, no
+midpoint, and no ~300M. [`prior_art.md` §2](./prior_art.md) quotes the sentences.
+
+So 0.24 is **a value chosen under a published ceiling**. That is a legitimate thing to do
+and an illegitimate thing to describe as sourced, and this section described it as sourced
+for four phases. The half of the claim that survives is the grant loss: 10% → 9.8% desktop
+and 20.1% → 19.1% Android, against the paper's "less than 5%".
+
+What is **not** published at all is that the same discount applies at *every rung* of a
 seven-channel ladder running from an in-app nudge to an agent call. Chrome measured **one**
 step between **two** UIs. Compounding it puts an email's backfire at `0.76⁵ ≈ 25%` of an
 agent call's.
@@ -114,12 +127,14 @@ agent call's.
 **This extrapolation is load-bearing.** It is what moved the shipped `(uplift, backfire)`
 point from the wrong side of [`results.md` §4](./results.md)'s frontier to the right one.
 Before this project claims that asking pays at the shipped parameters, this constant needs
-either a measurement or its own sweep axis. It has neither.
+either a measurement or its own sweep axis. It has neither — and after the correction
+above, it does not have the provenance it was said to have either. That is now
+[`calibration.md` §6](./calibration.md) item 6.
 
 §2.1 and this entry are the two the project cannot argue its way out of, and they fail
 differently: §2.1 decides the **sign** of the headline comparison, while this one decides
 whether asking pays **at all** — it is what put the shipped point on the profitable side of
-the frontier. ([`calibration.md` §5](./calibration.md))
+the frontier. ([`calibration.md` §5](./calibration.md) · [`prior_art.md` §2](./prior_art.md))
 
 ### 2.3 The hazard model is over-confident exactly where the money is spent
 
@@ -159,9 +174,10 @@ without claiming them.
 ### 3.1 This is not LinkedIn-shaped validation, and must not be presented as one
 
 [`eval.md` §6](./eval.md) compares this system's shape against LinkedIn's published result
-(−64.5% volume, −1.8% sessions, −47% complaints) and **fails the check**. The *direction*
-matches on volume and complaints; the magnitudes are far more extreme; and the retention axis
-points the **wrong way** at the shipped parameters.
+(−35.5% volume, −1.8% sessions, −53.0% complaints — corrected from the paper on 2026-09-02,
+§5) and **fails the check**. The *direction* matches on volume and complaints; the
+magnitudes are far more extreme, and the correction made them *more* so; and the retention
+axis points the **wrong way** at the shipped parameters.
 
 The sentence "our result matches a published industry result" would be false. The true
 sentence is narrower, and this project only gets the narrower one.
@@ -221,28 +237,46 @@ those fields are populated. Any transfer of this model must drop them and refit.
 
 ---
 
-## 5. The citation chain has a hole in it
+## 5. The citation chain had a hole in it, and closing it cost two numbers
 
-`prior_art.md` **does not exist.** [`calibration.md` §5](./calibration.md) and
-[`problem.md`](./problem.md) both send every prior-art number there for its exact claim and
-page reference — LinkedIn's −64.5% / −1.8% / −47%, Pinterest's inverted U, Chrome's
-~300M-user quiet-UI result, Duolingo's fatigue half-life, ARMMAN's Whittle arm, and Adyen's
-~6% — and the link terminates nowhere.
+**Closed 2026-09-02 (T5.7).** Until that date this section read *"`prior_art.md` **does not
+exist**"* — and it did not, while [`calibration.md` §5](./calibration.md) and
+[`problem.md`](./problem.md) both sent every prior-art number there for its exact claim and
+page reference. Six load-bearing figures had a citation chain that terminated in a dead
+link, which reads exactly like a citation that resolves.
 
-Those numbers currently reach the code from this project's own build plan, and
-[`CLAUDE.md`](../CLAUDE.md) §3 is explicit that a build plan is not a source. The most
-load-bearing of the six are the LinkedIn triple, which `eval.md` §6 now measures every result
-against, and Adyen's ~6%, which §1 of this document uses as its yardstick.
+[`prior_art.md`](./prior_art.md) exists now. **Two of the six were wrong**, and both
+corrections go against this project:
+
+| number | quoted until 2026-09-02 | what the paper says |
+|---|---|---|
+| LinkedIn volume (KDD '16) | −64.5% | **−35.5%** |
+| LinkedIn complaints | −47% | **−53.0%** |
+| Chrome's backfire discount | "midpoint of a published 17–31%" | **no such range**; the paper says "up to 30%", about actions on prompts rather than refusals |
+
+Neither is a transcription slip. Both are a published table read as reporting something
+other than what it reported — LinkedIn's Table 3 gives *retained levels* against a control
+of 100, and this project read two of the three as reductions while correctly converting the
+third. The LinkedIn correction widens `eval.md` §6's mismatch from 1.5x to 2.8x. The Chrome
+correction demotes `value.backfire_avoided_per_softer_step: 0.24` from a sourced midpoint to
+a chosen value under a ceiling, which makes §2.2 of this document — already flagging that
+constant as load-bearing and unmeasured — sharper rather than softer.
+
+**What is still open.** Four of the seven modelling sources remain unread: Duolingo's
+fatigue half-life, ARMMAN's Whittle arm, Adyen's ~6% (which §1 of this document uses as its
+yardstick), and Twitter/X reachability. `prior_art.md` §7 marks each one `unread` rather
+than dressing it as a citation, and that is the current honest state, not a completed job.
 
 Two further numbers are used nowhere but have appeared in drafts and must not reappear:
 
 * **"Card post-2021 failure 20%+ in some categories."** Carried from the build plan, not
   found on 2026-08-29. It must not enter the pitch, the video, or `problem.md`. The verified
   2021 figures in `calibration.md` §2.2 say enough on their own.
-* **"No transition period" for the April 2026 framework.** The secondary reporting neither
-  states nor denies a transition window. *Absence of a stated transition is not a stated
-  absence*, and the difference matters to a "why now" argument. To be settled from the
-  circular text in T4.1.
+* ~~**"No transition period" for the April 2026 framework.**~~ **Settled 2026-09-01 in
+  T4.1**, from the circular text rather than from the secondary reporting: clause 1(b) is
+  "effective immediately" and clause 11's repeal carries no savings provision. What the text
+  is *silent* on — whether mandates registered under the repealed circulars must be
+  re-registered — is §8.4 of this document.
 
 ---
 

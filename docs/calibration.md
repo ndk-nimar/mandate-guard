@@ -16,7 +16,9 @@ and could **not** verify. That section exists because a document like this is wo
 it only records the successes.
 
 Verification pass run 2026-08-29. Every URL below was fetched or returned by search on
-that date.
+that date. A **second pass on 2026-09-02** (T5.7) read the prior-art papers themselves and
+moved two numbers — see [`prior_art.md`](./prior_art.md), and §5 and §6 below for what it
+cost this project to find out.
 
 ---
 
@@ -259,8 +261,11 @@ and the results are reported as a region, not a point.
 | `value.gamma_fatigue`, `fatigue_half_life_days` | 25.0, 15 | Duolingo (KDD 2020) gives the functional form and an approximate half-life, not a rupee magnitude |
 | `value.rho_template_reuse` | 5.0 | same |
 | `channels[].cost_inr` | ₹0 to ₹40 | Indian channel rate cards, but not from one citable published table — see §5 |
+| `intervention.backfire_first_ask` | 0.006 | **the constant the headline turns on**, and no public measurement exists for it. Added here 2026-09-02: `eval.md` §6.2 had been citing this section for it while this table carried no row, which `limitations.md` §2.1 caught |
+| `intervention.backfire_twelfth_ask` | 0.06 | the far end of the same ladder. Ten-to-one against the first ask is a *shape* taken from `problem.md` §5.1, not a measured ratio |
+| `intervention.uplift_scale` | 1.0 | how much of a death an ask averts. Swept from 0 to 2 in the T2.8 grid, and `results.md` §4's frontier is drawn in this parameter against the one above |
 | `channels[].efficacy_prior` | 0.02 to 0.28 | **priors, not measurements**, and the sensitivity grid (T2.8) exists because of it |
-| `value.backfire_avoided_per_softer_step` | 0.24 | the *number* is sourced -- the midpoint of Chrome's published 17-31% -- but **its application is an extrapolation**, see below |
+| `value.backfire_avoided_per_softer_step` | 0.24 | **neither sourced nor swept.** Chosen under Chrome's published *"up to 30%"* ceiling -- the 17-31% range it was said to be the midpoint of does not exist (§5, corrected 2026-09-02) -- and then applied seven times, which is an extrapolation on top of a choice |
 
 `india.ntd_to_inr: 1.0` is a separate case and is neither sourced nor swept: it is a
 deliberate **decision** to read KKBox's price ladder (149/129/119/99 NTD) as India's
@@ -302,16 +307,29 @@ other number in this project for that reason.
 magnitudes and the *ordering* is not in doubt, but no single published table was found that
 gives all seven. They are treated as swept in §4 rather than presented as sourced.
 
-**Chrome's 17-31%, applied seven times.** `value.backfire_avoided_per_softer_step: 0.24`
-is the midpoint of a genuinely published range: Chrome's quieter permission surface avoided
-17-31% of permanent refusals across ~300M users. What is *not* published is that the same
+**~~Chrome's 17-31%~~, applied seven times. CORRECTED in T5.7 (2026-09-02).**
+`value.backfire_avoided_per_softer_step: 0.24` was described here as *"the midpoint of a
+genuinely published range: Chrome's quieter permission surface avoided 17-31% of permanent
+refusals"*. **There is no published 17-31% range.** The paper says *"up to 30% fewer
+unnecessary actions on the prompts"* — a single upper bound, and about *actions on prompts*
+rather than permanent refusals. [`prior_art.md` §2](./prior_art.md) quotes the abstract and
+shows the working.
+
+So 0.24 is **a chosen value under a published ceiling**, not the midpoint of a published
+range. It moves from "sourced" to "chosen", which is a weaker origin than this document has
+been claiming for it, and it stays in this section rather than §1 for that reason. The
+grant-loss half of the claim does survive: per-client grant rates went 10% → 9.8% on
+desktop and 20.1% → 19.1% on Android, so "2-5% of grants lost" is a fair reading of the
+paper's "less than 5%".
+
+What is *still* not published, and was the original point of this paragraph: that the same
 discount applies at every rung of a seven-channel ladder from an in-app nudge to an agent
 call. Chrome measured **one** step between **two** UIs. Compounding it puts an email's
-backfire at 0.76⁵ ≈ 25% of an agent call's, and **that extrapolation is load-bearing**: it
+backfire at 0.76⁵ ≈ 25% of an agent call's, and **that extrapolation is load-bearing** — it
 is what moved the shipped `(uplift, backfire)` point from the wrong side of `results.md`
 §4's frontier to the right one. Before this project claims that asking pays at the shipped
 parameters, this constant needs either a measurement or its own sweep axis. It currently
-has neither.
+has neither, and now it does not have the provenance it was said to have either.
 
 **`safety.max_model_age_days: 30`.** The age at which the hazard model is considered stale
 and the system drops to the conservative floor. A decision, not a measurement: the KKBox
@@ -323,12 +341,24 @@ defended in `limitations.md` §8.11; what it rests on is this paragraph.
 labelled as priors in `params.yaml`, and T2.8's sensitivity grid is the entire reason the
 project can carry them without claiming them.
 
-**The prior-art results** — LinkedIn's −64.5% volume / −1.8% sessions / −47% complaints,
-Pinterest's inverted U, Chrome's ~300M-user quiet UI result, Duolingo's fatigue half-life,
-ARMMAN's Whittle-index arm, Adyen's ~6% contextual-bandit lift — are cited from their
-published papers in [`prior_art.md`](./prior_art.md), which is where each one's exact claim
-and page reference belongs. They are not re-verified here; this document covers the numbers
-this project *asserts*, and those are numbers it *cites*.
+**The prior-art results** — LinkedIn's volume / sessions / complaints triple, Pinterest's
+inverted U, Chrome's ~40M-user quiet UI result, Duolingo's fatigue half-life, ARMMAN's
+Whittle-index arm, Adyen's ~6% contextual-bandit lift — now live in
+[`prior_art.md`](./prior_art.md), written 2026-09-02, which carries each one's exact claim,
+its link, and whether the paper was actually read. They are not re-verified here; this
+document covers the numbers this project *asserts*, and those are numbers it *cites*.
+
+Two things that document found, because they belong in this section too:
+
+* **The LinkedIn triple was misread, and this document quoted the misreading.** It said
+  −64.5% volume / −1.8% sessions / −47% complaints. The paper's Table 3 reports *retained
+  levels* against a send-all control of 100 — send 64.51, complaint 46.97, session 98.16 —
+  so the deltas are **−35.5% / −1.8% / −53.0%**. Two of the three were the retained level
+  read as a reduction; the third was computed correctly. `eval.md` §6 is the only consumer
+  and the correction makes its mismatch **worse**, not better.
+* **Four of the seven modelling sources are still unread** — Duolingo, ARMMAN, Adyen and
+  Twitter/X. `prior_art.md` §7 marks each one, and this is what "cited" means for them
+  today: the identity of the work is known and the specific figure is not verified.
 
 ---
 
@@ -341,12 +371,19 @@ this project *asserts*, and those are numbers it *cites*.
    it (§5).
 4. ~~Settle the transition-period question from the circular text during T4.1 (§1).~~
    **Done, 2026-09-01.** Settled against the text; see §1 and §5.
-5. **Write [`prior_art.md`](./prior_art.md), or stop linking to it.** §5 above sends every
-   prior-art number there for its exact claim and page reference, and
-   [`problem.md`](./problem.md) links to it as well — but the file has never existed. So
-   the citation chain for LinkedIn's −64.5% / −1.8% / −47%, Pinterest's inverted U,
-   Chrome's quiet-UI result, Duolingo's half-life, ARMMAN's Whittle arm and Adyen's ~6%
-   currently terminates in two dead links, and those numbers reach the code from this
-   project's own build plan. §3 of `CLAUDE.md` is explicit that this does not count as a
-   source. Most load-bearing of the six is the LinkedIn triple, which `eval.md` §6 now
-   compares every result against.
+5. ~~**Write [`prior_art.md`](./prior_art.md), or stop linking to it.**~~ **Done, 2026-09-02
+   (T5.7).** Kept here because what it found is the point of the whole rule. The file had
+   never existed while §5 above and [`problem.md`](./problem.md) both sent every prior-art
+   number to it for "the exact claim and page reference", so the citation chain for six
+   load-bearing figures terminated in a dead link and those figures reached the code from
+   this project's own build plan. Writing it took under two hours and **two of the six
+   numbers turned out to be wrong** — the LinkedIn triple and Chrome's
+   "17-31%", both in §5 above. Both corrections make this project's position weaker, which is the
+   direction that deserves the least suspicion. Four of the seven modelling sources remain
+   unread and `prior_art.md` §7 says which.
+
+6. **Measure or sweep `backfire_avoided_per_softer_step`.** Newly opened by item 5. The
+   constant is compounded across seven channel rungs, it is what puts the shipped point on
+   the profitable side of `results.md` §4's frontier, and as of the correction above it has
+   neither a measurement, a sweep axis, nor the published range it was said to sit in the
+   middle of. It is the largest unaddressed hole in this document.

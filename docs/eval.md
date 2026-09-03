@@ -226,6 +226,10 @@ Intercept −1.6752, converged in 83 iterations. Largest coefficients:
 | `weeks_4_4` | +1.2371 | week 4 -- the first renewal |
 | `member_known` | −1.1489 | has a `members` row |
 | `weeks_6_7` | +1.1278 | weeks 6-7 |
+
+
+
+
 | `expiry_6` | −1.0211 | coverage ends in 31-60 days |
 | `channel_4` | +0.9993 | signup channel 4 |
 | `weeks_5_5` | +0.9629 | week 5 |
@@ -563,7 +567,7 @@ online against batch -- both are this project marking its own homework. This sec
 one external check available, and it is the one this project **fails**.
 
 LinkedIn published three numbers when they replaced send-everything-eligible with an
-optimiser (KDD 2016): volume **-64.5%**, sessions **-1.8%**, complaints **-47%**. The
+optimiser (KDD 2016): volume **-35.5%**, sessions **-1.8%**, complaints **-53.0%**. The
 triple is useful for its *shape* rather than its magnitudes -- send far less, lose almost
 none of what the sends were for, cut the harm a lot.
 
@@ -583,18 +587,27 @@ The reference arm is `P1 ChronologicalCap` at a saturating budget -- contact eve
 every week. LinkedIn's "before" was their own production system sending to everyone
 eligible, and `P1` is the campaign-tool default a merchant would actually be running today.
 
-> **The triple's own citation does not close, and that is stated before it is used.**
-> [`calibration.md`](./calibration.md) §5 lists these three numbers and sends the reader to
-> `prior_art.md` for the exact claim and page reference. **That document has never been
-> written** -- it is a Phase 5 deliverable, and [`problem.md`](./problem.md) links to it
-> too, so both links are dead today. These numbers therefore reach the code from this
-> project's own build plan, and `CLAUDE.md` §3 is explicit that a build plan is not a
-> source.
+> **Two of these three numbers were wrong until 2026-09-02, and the correction went
+> against this project.** Until T5.7 the triple reached the code from this project's own
+> build plan, and both `calibration.md` §5 and this section said so while pointing at a
+> `prior_art.md` that did not exist. It exists now, the paper has been read, and
+> [`prior_art.md` §1](./prior_art.md) shows the working.
 >
-> It does not sink this section, because the finding below is a **mismatch** and the gap is
-> 35 percentage points on volume plus a sign flip on retention -- not something a
-> transcription slip could manufacture. But the triple must not be quoted as verified until
-> somebody has read it out of the paper. `calibration.md` §6 now carries that as a job.
+> The paper's Table 3 reports **levels retained** against a send-all control of 100 -- send
+> `64.51`, complaint `46.97`, session `98.16` -- and this project had been reading the first
+> two as *reductions* while correctly turning the third into `100 - 98.16 = 1.84`. One
+> table, two readings, inside one triple.
+>
+> | axis | quoted until 2026-09-02 | the paper |
+> |---|---:|---:|
+> | volume | -64.5% | **-35.5%** |
+> | sessions | -1.8% | -1.8% |
+> | complaints | -47% | **-53.0%** |
+>
+> **The mismatch below got worse, not better.** LinkedIn cut about a third of their sends;
+> this allocator cuts 99.3%, so the gap is now 2.8x rather than 1.5x, and the complaints gap
+> widens too. The retention sign flip -- the more interesting half -- is unchanged. A
+> correction that had flattered the project would deserve more suspicion than this one does.
 
 Reproduce with:
 
@@ -608,16 +621,16 @@ Reference `P1` against challenger `P4`, same book, same 12-week horizon, at a bu
 
 | axis | LinkedIn (KDD 2016) | here | reference | challenger |
 |---|---:|---:|---:|---:|
-| volume (asks) | -64.5% | -99.3% | 16,236 | 109 |
+| volume (asks) | -35.5% | -99.3% | 16,236 | 109 |
 | engagement (mandates retained) | -1.8% | +7.4% | 1,131.9 | 1,215.9 |
-| complaints (revocations caused) | -47.0% | -99.7% | 90.55 | 0.28 |
+| complaints (revocations caused) | -53.0% | -99.7% | 90.55 | 0.28 |
 
 **The direction agrees on the axes that matter.** Far fewer asks, far fewer revocations caused. That is the shape T3.6 asked for, and it is the weak claim.
 
-**The magnitude does not.** This allocator cuts volume by 99.3% where LinkedIn cut it by 64.5% -- 1.5 times as deep.
+**The magnitude does not.** This allocator cuts volume by 99.3% where LinkedIn cut it by 35.5% -- 2.8 times as deep.
 And retention moves the **wrong way**: +7.4% here against LinkedIn's -1.8%. Cutting asks is not supposed to *raise* the thing the asks were for.
 
-There is a coherent reading and it is not a flattering one. LinkedIn's marginal notification was worth roughly nothing -- they dropped two thirds of their volume and lost 1.8% of sessions, which is what near-zero value looks like. In this model the marginal ask is worth *less* than nothing, because backfire makes contacting a healthy mandate actively harmful. So the reference arm is not merely wasteful here, it is destructive, and declining to do what it does shows up as a gain.
+There is a coherent reading and it is not a flattering one. LinkedIn's marginal notification was worth roughly nothing -- they dropped 35% of their volume and lost 1.8% of sessions, which is what near-zero value looks like. In this model the marginal ask is worth *less* than nothing, because backfire makes contacting a healthy mandate actively harmful. So the reference arm is not merely wasteful here, it is destructive, and declining to do what it does shows up as a gain.
 
 ### 6.2 Does any backfire rate reproduce it?
 
@@ -625,24 +638,23 @@ There is a coherent reading and it is not a flattering one. LinkedIn's marginal 
 
 | backfire (1st ask) | volume | engagement | complaints | distance from LinkedIn |
 |---:|---:|---:|---:|---:|
-| 0.00000 | -91.3% | -0.2% | -- | 0.1419 |
-| 0.00005 | -91.3% | -0.2% | -97.9% | 0.2646 |
-| 0.00010 | -91.4% | -0.1% | -97.9% | 0.2651 |
-| 0.00030 | -91.5% | +0.2% | -97.6% | 0.2652 |
-| 0.00060 | -91.6% | +0.6% | -97.6% | 0.2669 |
-| 0.00100 | -92.5% | +1.1% | -97.8% | 0.2724 |
-| 0.00300 | -98.1% | +3.6% | -99.1% | 0.3035 |
-| 0.00600 **(shipped)** | -99.3% | +7.4% | -99.7% | 0.3225 |
-| 0.01200 | -99.8% | +15.8% | -99.9% | 0.3526 |
-| 0.02500 | -100.0% | +36.5% | -100.0% | 0.4226 |
+| 0.00000 | -91.3% | -0.2% | -- | 0.2872 |
+| 0.00005 | -91.3% | -0.2% | -97.9% | 0.3414 |
+| 0.00010 | -91.4% | -0.1% | -97.9% | 0.3418 |
+| 0.00030 | -91.5% | +0.2% | -97.6% | 0.3419 |
+| 0.00060 | -91.6% | +0.6% | -97.6% | 0.3437 |
+| 0.00100 | -92.5% | +1.1% | -97.8% | 0.3492 |
+| 0.00300 | -98.1% | +3.6% | -99.1% | 0.3802 |
+| 0.00600 **(shipped)** | -99.3% | +7.4% | -99.7% | 0.3992 |
+| 0.01200 | -99.8% | +15.8% | -99.9% | 0.4293 |
+| 0.02500 | -100.0% | +36.5% | -100.0% | 0.4993 |
 
 **No value of backfire reproduces LinkedIn's shape.**
 At 0.00000 neither arm causes a single revocation, so the complaints axis has no baseline and those rows are scored over two axes rather than three. Their distance is therefore *not* comparable with the others and they are excluded from the comparison below -- a row that wins by dropping the axis we are furthest off on has not won anything.
-Among the 9 rows scored on all three axes the closest is 0.00005, at a distance of 0.2646, and even there the volume cut is -91.3% against LinkedIn's -64.5%.
+Among the 9 rows scored on all three axes the closest is 0.00005, at a distance of 0.3414, and even there the volume cut is -91.3% against LinkedIn's -35.5%.
 The distance rises monotonically with backfire across the whole sweep, so the closest fit is at the bottom of the range and lowering backfire further only runs into the degenerate rows above. **The mismatch is not a backfire value we have mis-set: turning backfire down does not close it.** That rules out the one explanation this project had a knob for, which is worth more than a fitted value would have been.
 
 What backfire *does* control is the engagement axis. At the shipped 0.00600 retention moves +7.4%; at the bottom of the sweep it moves -0.2%, which is LinkedIn's direction. So the wrong-way retention number is a consequence of an unmeasured parameter and is the most parameter-sensitive figure in this project -- not an independent finding about allocation.
-
 
 ### 6.3 Reading the mismatch
 

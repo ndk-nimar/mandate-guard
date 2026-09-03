@@ -64,10 +64,32 @@ def spread_book(size: int = 120, weeks: int = 12) -> list[BookMandate]:
 
 def test_the_linkedin_triple_is_what_the_paper_published():
     """Sourced, not chosen. If this drifts, every claim in §6 drifts with it and there is
-    nothing in the output that would show it."""
-    assert shape.LINKEDIN.volume_delta == -0.645
-    assert shape.LINKEDIN.engagement_delta == -0.018
-    assert shape.LINKEDIN.complaint_delta == -0.47
+    nothing in the output that would show it.
+
+    Corrected on 2026-09-02, when the paper was finally read (`docs/prior_art.md` §1).
+    Table 3's "A/B Test (%)" columns are levels retained against a send-all control of
+    100 -- send 64.51, complaint 46.97, session 98.16 -- and this project had been reading
+    the first two as reductions while correctly turning the third into 100 - 98.16. One
+    table, two readings, one triple.
+
+    The three assertions below are written as `100 - level` rather than as the literals,
+    so that the arithmetic a reader has to check is the arithmetic the correction turned on.
+    """
+    assert shape.LINKEDIN.volume_delta == pytest.approx(-(100 - 64.51) / 100)
+    assert shape.LINKEDIN.engagement_delta == pytest.approx(-(100 - 98.16) / 100)
+    assert shape.LINKEDIN.complaint_delta == pytest.approx(-(100 - 46.97) / 100)
+
+
+def test_the_correction_made_the_external_check_harder_not_easier():
+    """Recorded as a test because it is the reason the correction is worth trusting: it
+    moved against this project. A misreading that happened to flatter us would deserve more
+    suspicion than one that costs us, and this one costs us."""
+    old_volume_claim = -0.645
+    assert shape.LINKEDIN.volume_delta > old_volume_claim, (
+        "LinkedIn cut less than this project used to claim, so our 99.3% cut is further "
+        "from theirs, not closer"
+    )
+    assert shape.LINKEDIN.complaint_delta < -0.47
 
 
 def test_the_three_deltas_are_relative_changes_against_the_reference():
@@ -82,7 +104,7 @@ def test_the_three_deltas_are_relative_changes_against_the_reference():
 
 def test_an_axis_with_no_baseline_is_undefined_rather_than_zero():
     """ "Complaints did not change" and "neither arm caused a complaint" are different
-    statements, and only the first is a match with LinkedIn's -47%.
+    statements, and only the first is a match with LinkedIn's complaint figure.
 
     This is not hypothetical: the backfire anchor sweep runs straight through this cell
     at `backfire = 0`, where no ask can cause a revocation at all. Reporting 0.0 there
@@ -101,7 +123,7 @@ def test_an_undefined_axis_is_skipped_rather_than_counted_as_agreement():
     partial = shape.Shape(volume_delta=-0.9, engagement_delta=0.0, complaint_delta=None)
 
     assert partial.distance_from(shape.LINKEDIN) == pytest.approx(
-        (abs(-0.9 + 0.645) + abs(0.0 + 0.018)) / 2
+        (abs(-0.9 - shape.LINKEDIN.volume_delta) + abs(0.0 - shape.LINKEDIN.engagement_delta)) / 2
     )
     assert full.distance_from(shape.LINKEDIN) > partial.distance_from(shape.LINKEDIN)
 
