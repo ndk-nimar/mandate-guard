@@ -116,7 +116,15 @@ uv run python scripts/make_llm_eval.py         # T4.7  score it -> docs/llm_eval
 uv run python scripts/make_ledger.py --sample  # T5.1  a run's decision ledger
 uv run mandateguard replay --decision-id X     # T5.2  re-run one decision
 uv run mandateguard audit --rail enach         # judge one mandate, clauses named
+uv run mandateguard repro --check              # T5.8  rebuild every artifact, fail on a byte
 ```
+
+`repro --check` is GATE 5 and it is what CI runs: about three minutes **on a plain local
+disk**, no download, and it prints the two full-data artifacts it deliberately does **not**
+rebuild. It also prints where it is writing derived frames, because that choice is worth
+45x: measured 81s against 3,668s for the same step, byte-identical output both times, on a
+cloud-synced path. `.env` is gitignored, so a fresh clone does not inherit
+`MANDATEGUARD_DATA_DIR` and lands wherever the checkout is.
 
 **`--sample` runs the whole chain on the committed 5,079-subscriber slice in seconds**,
 with no download. It swaps a directory in `data/paths.py` and nothing downstream branches

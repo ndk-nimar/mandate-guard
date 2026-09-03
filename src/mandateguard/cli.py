@@ -1,13 +1,16 @@
 """`mandateguard` -- the command line a reviewer actually types.
 
+    uv run mandateguard repro --check
     uv run mandateguard replay --decision-id "P4-sample-s20260905-b500.00:mg_1:w3"
     uv run mandateguard verify-ledger data/ledger/P4-sample-s20260905-b500.00.jsonl
     uv run mandateguard audit --rail enach --amount 20000
 
-Three commands, each the smallest thing that demonstrates one claim: a decision can be
-re-run, a log can be checked, and a mandate can be judged with its clauses named. The
-scripts under `scripts/` remain the way runs are *produced*; this is the way they are
-*interrogated*, which is a different audience and deserves a different surface.
+Each command is the smallest thing that demonstrates one claim: the whole eval can be
+rebuilt, a decision can be re-run, a log can be checked, and a mandate can be judged with
+its clauses named. The scripts under `scripts/` remain the way runs are *produced*; this
+is the way they are *interrogated*, which is a different audience and deserves a different
+surface. `repro` is the one exception, and it exists because GATE 5 is about a stranger
+typing one thing rather than four.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from typing import Annotated
 import typer
 
 from mandateguard.agent.auditor import RulesAuditor
+from mandateguard.eval import repro
 from mandateguard.ledger.replay import ReplayRefused, replay
 from mandateguard.ledger.store import Ledger, LedgerBroken
 from mandateguard.models import MandateAuditContext, MandateCategory, Rail
@@ -39,6 +43,31 @@ def _find_ledger(decision_id: str, ledger_path: Path | None) -> Ledger:
     from mandateguard.data.paths import ROOT
 
     return Ledger(ROOT / "data" / "ledger" / f"{run_id}.jsonl")
+
+
+@app.command("repro")
+def repro_command(
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="fail if any regenerated artifact differs from the commit"),
+    ] = False,
+    verbose: Annotated[
+        bool, typer.Option("--verbose", help="stream each script's output instead of logging it")
+    ] = False,
+) -> None:
+    """Rebuild every sample-derived artifact from `data/sample/`, then diff it (GATE 5).
+
+    About three minutes and no download: the committed 5,079-subscriber slice is the only
+    input. `--check` turns the run into a claim -- byte-identical or exit 1 -- and the
+    report always names the two artifacts that are full-data and therefore *not* rebuilt
+    here, because a clean column of `ok` that quietly omits them is the more dangerous
+    output.
+    """
+    report = repro.run(check=check, quiet=not verbose)
+    for line in report.lines():
+        typer.echo(line)
+    if not report.ok:
+        raise typer.Exit(1)
 
 
 @app.command("replay")

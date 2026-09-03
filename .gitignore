@@ -43,6 +43,9 @@ docs/tasks-samjhao.md
 docs/worklog.md
 docs/seekha.md
 
+# T5.10. English, but explicitly "not submitted -- this one is for you" (tasks.md).
+docs/interview_prep.md
+
 # Claude Code local working directory (worktrees, session state)
 .claude/
 
@@ -50,3 +53,6 @@ docs/seekha.md
 # committing one would make every rerun a diff, and the property CI checks is the
 # chain (tests/test_ledger.py), not any particular file.
 data/ledger/
+
+# T5.8 repro logs. A run, not a document -- see src/mandateguard/eval/repro.py.
+data/repro/

@@ -54,10 +54,10 @@ jobs:
       - name: Chaos suite
         run: uv run pytest tests/test_chaos.py tests/test_safety.py -q
 
-  # GATE 2. Not "the script runs" -- "the script produces the file that is committed".
-  # A stranger's fork has to regenerate results.md byte for byte, and the only way to
-  # know that is to regenerate it here, on a different OS from the one it was written
-  # on, and fail on any difference at all.
+  # GATE 2 and GATE 5. Not "the script runs" -- "the one documented command produces the
+  # files that are committed". A stranger's fork has to regenerate them byte for byte,
+  # and the only way to know that is to regenerate them here, on a different OS from the
+  # one they were written on, and fail on any difference at all.
   results:
     runs-on: ubuntu-latest
     steps:
@@ -71,26 +71,26 @@ jobs:
       - name: Sync (locked)
         run: uv sync --frozen --all-extras --dev
 
-      # Reads data/sample/ only. No download, no MANDATEGUARD_DATA_DIR: the whole point
-      # of the committed slice (docs/mapping.md 4) is that this step needs nothing else.
-      - name: Regenerate results.md
-        run: uv run python scripts/make_results.py
+      # T5.8, and GATE 5's whole claim in one line. This is the command a stranger types
+      # after cloning, so it is the command CI runs -- not a CI-only sequence of scripts
+      # that happens to cover the same ground and is free to drift from the documented
+      # one. It reads data/sample/ only: no download, no MANDATEGUARD_DATA_DIR, because
+      # the point of the committed slice (docs/mapping.md 4) is that nothing else is
+      # needed. --check regenerates results.md, sweeps.png, llm_eval.md and segments.png
+      # and fails on a single differing byte. GATE 4's second half rides along inside it:
+      # the rules arm scores 114 golden cases with no API key, and the model arm reports
+      # itself as unscored rather than being skipped.
+      - name: Reproduce every sample-derived artifact (GATE 5)
+        run: uv run mandateguard repro --check
 
-      # GATE 4's second half. Needs no API key: the rules arm scores 114 golden cases
-      # deterministically, and the model arm reports itself as unscored rather than
-      # being skipped. No wall-clock number is written into the document, which is why
-      # this diff can be byte-exact across machines.
-      - name: Regenerate llm_eval.md
-        run: uv run python scripts/make_llm_eval.py
+      # The report names what drifted; this prints how much, which is what a reader
+      # actually wants when the step above has just gone red.
+      - name: Show the drift
+        if: failure()
+        run: git --no-pager diff --stat
 
-      - name: Fail if the committed results drifted
-        run: |
-          git --no-pager diff --stat -- docs/results.md docs/img/sweeps.png docs/llm_eval.md
-          git diff --exit-code -- docs/results.md docs/img/sweeps.png docs/llm_eval.md
-
-      # Only reached when the diff is clean, so this is the regenerated file and the
-      # committed one at once -- useful when the diff *is* dirty and someone needs to see
-      # what CI produced without reproducing the environment.
+      # Uploaded even on failure, so the regenerated file can be inspected without
+      # reproducing the environment it was produced in.
       - name: Upload results
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,4 +99,5 @@ jobs:
           path: |
             docs/results.md
             docs/img/sweeps.png
+            docs/img/segments.png
             docs/llm_eval.md
