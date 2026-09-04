@@ -106,6 +106,19 @@ jobs:
         shell: bash
         run: uv run mandateguard repro --check 2>&1 | tee repro-report.txt
 
+      # repro writes a per-step log under data/repro/, which is gitignored and therefore
+      # unreachable from a CI failure. A failing step whose log cannot be read is a step
+      # that has to be reproduced locally to be understood -- and the whole point of this
+      # job is the machines that are not local.
+      - name: What the failing step said
+        if: failure() || steps.repro.outcome == 'failure'
+        shell: bash
+        run: |
+          for f in data/repro/*.out; do
+            echo "===== $f"
+            cat "$f"
+          done
+
       # This is the gate. It fails on any change to a quoted figure.
       - name: Every quoted figure is unchanged (GATE 5)
         run: uv run python scripts/check_drift.py
