@@ -148,8 +148,19 @@ snapshot of a machine rather than of the data.
 
 **What enforces it:** `uv run mandateguard repro --check` (T5.8) rebuilds
 `results.md`, `sweeps.png`, `llm_eval.md` and `segments.png` from `data/sample/` and fails
-on one differing byte. CI runs that exact command, on a different operating system from
-the one the files were committed from.
+on one differing byte. CI runs that exact command on `windows-latest`, the platform the
+committed files were produced on.
+
+**And the scope of that sentence is narrower than it was until 2026-09-04.** CI ran for the
+first time that day -- this repository had no remote before it, so `ci.yml` had never
+executed -- and the same command on `ubuntu-latest` failed. The drift was arithmetic, not
+line endings: INR 413,219 became INR 413,218 and 89.805% became 89.804%, because
+floating-point summation is not associative across platforms, while both PNGs changed size
+because matplotlib resolves different fonts on Linux. Every figure this project quotes was
+unchanged. Byte-identity therefore holds **on the platform that produced the files**, and
+holds to four significant figures across platforms. `results-crossplatform` keeps measuring
+the gap on every push without failing the build, and
+[`limitations.md` §9](./limitations.md) is the full account.
 
 **What it does not enforce is tractability, and that turned out to matter.** The same
 command on the same tree took **2m51s** with derived frames on a plain drive and **64m01s**

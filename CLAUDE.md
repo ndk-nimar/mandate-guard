@@ -61,11 +61,17 @@ confidently wrong answer is the worst thing to hand over here.
 
 ## 3. Three rules that already caught real bugs
 
-**Every derived file is byte-identical across runs.**
+**Every derived file is byte-identical across runs, on the platform that produced it.**
 [ADR 0003](docs/adr/0003-determinism-of-derived-data.md). Tie-breaks are total, ambiguity
 resolves *against* this project's own headline, and every `COPY` carries an `ORDER BY`.
 Test it by building twice and comparing **bytes**, not counts. Matching counts are not
 proof of reproducibility.
+
+The platform clause is measured, not hedging: GATE 5 on `ubuntu-latest` drifts by INR 1 in
+413,219 and one digit in the fourth decimal of a percentage, and both PNGs change size
+because matplotlib resolves different fonts there. No quoted figure moves.
+`docs/limitations.md` §9 has the numbers and their origin. When you write a determinism
+claim, name the platform in the same sentence.
 
 **Features may only use what was known at the start of the period; labels may use the
 future.** The person-period frame ([`mapping.md`](docs/mapping.md) §5.1) exists to enforce

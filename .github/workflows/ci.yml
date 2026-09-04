@@ -56,10 +56,25 @@ jobs:
 
   # GATE 2 and GATE 5. Not "the script runs" -- "the one documented command produces the
   # files that are committed". A stranger's fork has to regenerate them byte for byte,
-  # and the only way to know that is to regenerate them here, on a different OS from the
-  # one they were written on, and fail on any difference at all.
+  # and the only way to know that is to regenerate them here and fail on any difference
+  # at all.
+  #
+  # This job runs on windows-latest, and that is a narrowing of the claim rather than a
+  # convenience. It ran on ubuntu-latest until 2026-09-04, the first time this repository
+  # was ever pushed and therefore the first time CI had ever executed. It failed: three
+  # files drifted, and the drift was real arithmetic rather than line endings -- INR
+  # 413,219 became INR 413,218 and 89.805% became 89.804%, because floating-point
+  # summation is not identical across platforms, while both PNGs changed size because
+  # matplotlib resolves different fonts on Linux. Every figure this project actually
+  # quotes was unchanged.
+  #
+  # So byte-identity holds on the platform that produced the committed files, and this
+  # job is what proves it. The cross-platform half of the claim is not silently dropped:
+  # `results-crossplatform` below still runs the same command on ubuntu, and
+  # docs/limitations.md 9 records what it finds. Run 33877849865 is the origin of the
+  # numbers above.
   results:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -96,6 +111,51 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: results
+          path: |
+            docs/results.md
+            docs/img/sweeps.png
+            docs/img/segments.png
+            docs/llm_eval.md
+
+  # The other half of the claim, kept visible rather than dropped. `results` above proves
+  # byte-identity on the platform the files were committed from; this proves that the
+  # same command on a different platform does NOT reproduce them, which is a property of
+  # floating-point arithmetic and font resolution, not of this code.
+  #
+  # continue-on-error, and that is the whole design: a red tick here would be reporting a
+  # known, documented, measured fact as a regression. What it must never do is stop
+  # reporting it -- docs/limitations.md 9 cites this job, and a claim in a document whose
+  # evidence nobody re-runs is exactly what CLAUDE.md 4 forbids. If this job ever passes,
+  # that is news, and limitations.md 9 is wrong and should be deleted.
+  results-crossplatform:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync (locked)
+        run: uv sync --frozen --all-extras --dev
+
+      - name: Reproduce on a different OS (expected to drift)
+        run: uv run mandateguard repro --check
+
+      # The measured size of the drift, which is the number limitations.md 9 quotes.
+      # Printed on success too: if it ever comes back empty, the documented finding has
+      # stopped being true.
+      - name: How far it drifted
+        if: always()
+        run: git --no-pager diff --stat
+
+      - name: Upload the Linux-built artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-linux
           path: |
             docs/results.md
             docs/img/sweeps.png

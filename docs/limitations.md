@@ -1,6 +1,6 @@
 # Limitations
 
-Status: written 2026-09-01, during Phase 3 · Last updated: 2026-09-02 (§8, Phase 4)
+Status: written 2026-09-01, during Phase 3 · Last updated: 2026-09-04 (§9, first CI run)
 
 This document was written **before** the build was finished, which is the only reason to
 trust it. A limitations section written on the last day is written to survive the results;
@@ -554,3 +554,112 @@ length bounds, and at least one of the figures it was given when the refusal tur
 What none of them can check is whether the sentence says the *right* thing about the right
 numbers; that needs a second model grading the first, which is a different system and not
 something a fallback path should depend on.
+
+---
+
+## 9. "Byte-identical" holds on one platform, and nobody checked the other one
+
+Added 2026-09-04, on the day it was found.
+
+[ADR 0003](./adr/0003-determinism-of-derived-data.md) is one of this project's three
+standing rules and the strongest claim it makes about its own outputs: every derived file
+is byte-identical across runs, checked by comparing bytes rather than counts. `repro
+--check` enforces it, CI runs `repro --check`, and [`architecture.md`
+§2.5](./architecture.md) describes the guarantee.
+
+The claim is true. Its scope was written wider than the evidence.
+
+### 9.1 What was actually being checked
+
+This repository had **no git remote until 2026-09-04**. `ci.yml` had been in the tree since
+Phase 1 and had never executed once — not a failing workflow, an unrun one. Every
+determinism result this project reported came from `repro --check` on the author's Windows
+machine, including the "fresh tree, byte-identical, exit 0" run recorded for GATE 5.
+
+Same command, same lockfile, same committed sample, one operating system.
+
+### 9.2 What the first CI run found
+
+Run [`33877849865`](https://github.com/gurkanwaldeep927/mandate-guard/actions/runs/33877849865),
+`ubuntu-latest`. `check` passed in 51s — lint, format, scoped types, the full suite, the
+policy re-compile and the chaos suite all behave identically on Linux. `results` failed:
+
+```
+docs/img/segments.png | Bin 47075 -> 54315 bytes
+docs/img/sweeps.png   | Bin 80382 -> 89069 bytes
+docs/results.md       |  64 +++++++++++------------
+```
+
+The first diagnosis was line endings — a Windows checkout with `core.autocrlf=input` and no
+`.gitattributes` is the obvious suspect. **It was wrong, and the diff's shape is what says
+so:** 32 changed lines rather than a whole-file rewrite. Downloading the Linux-built
+artifact and comparing with `\r` stripped isolates the real difference:
+
+| `results.md` | committed (Windows) | rebuilt (Linux) |
+|---|---|---|
+| `P0` total value | INR 413,2**19** | INR 413,2**18** |
+| `P5` contact rate | 89.80**5**% | 89.80**4**% |
+
+**One rupee in 413,219 — 0.00024% — and one digit in the fourth decimal of a percentage.**
+Floating-point summation is not associative, and the order a platform's math library and
+BLAS accumulate in is not part of any promise this project can make. The PNGs differ far
+more visibly in bytes for an unrelated reason: matplotlib resolves different fonts on Linux,
+so the same chart rasterises different text pixels.
+
+### 9.3 What did not move
+
+Every figure this project quotes. `P4` net **+81**, `P1` **−302,204**, the uplift columns
+**4.5% / 0.9%**, the `P1` → `P4` retention contrast **1,131.9 → 1,215.9** that §1 above and
+[`eval.md` §6](./eval.md) both turn on — identical on both platforms. The drift is confined
+to the last significant digit of the largest sums.
+
+This is the distinction the finding actually turns on: **the tightness of a gate and the
+significance of a number are separate properties.** A byte gate is stricter than any
+decision made from these numbers requires, which is why it is worth having and also why it
+fails on a difference that changes nothing.
+
+### 9.4 What was changed, and what was not
+
+GATE 5 now runs on `windows-latest` — the platform the committed artifacts were produced
+on. The honest statement of the guarantee is therefore narrower than the one this project
+carried until today:
+
+> Every derived file is byte-identical across runs **on the platform that produced it**.
+> Across platforms it is identical to four significant figures, and this is measured rather
+> than assumed.
+
+What was **not** done, and why:
+
+* **Regenerating the artifacts on Linux and committing those.** It turns CI green and
+  breaks `repro --check` permanently for the author, who develops and demonstrates on
+  Windows. It moves the failure rather than removing it.
+* **Comparing within a tolerance instead of by bytes.** This is the defensible long-term
+  fix and it is also a direct reversal of ADR 0003's own rule — *bytes, not counts* — which
+  exists because a count-based check let the mandate book return 1,053 and 1,054 on
+  identical input without failing. Replacing an exact gate with an approximate one, three
+  days from a deadline, on the strength of a single observed difference, would be trading a
+  rule that has caught real bugs for one that has caught none yet. It needs a considered
+  tolerance per artifact class and a test that the tolerance itself cannot mask a genuine
+  regression. That is a Phase 6 change, not a hotfix.
+* **Pinning fonts and a BLAS backend to make Linux match.** Plausible, unbounded, and it
+  would make the guarantee depend on pins nobody re-verifies.
+
+The cross-platform check is **not** silently dropped. `results-crossplatform` runs the same
+command on `ubuntu-latest` on every push with `continue-on-error: true`, so the drift stays
+measured and visible without being reported as a regression. If that job ever passes, this
+section is wrong and should be deleted.
+
+### 9.5 The general failure, which is the part worth keeping
+
+A workflow that has never run is not a gate. It is a file that describes one.
+
+The determinism claim was not unverified — it was verified repeatedly, thoroughly, and
+always against the same machine. The gap was invisible precisely *because* the checking was
+diligent: `repro --check` passing on a fresh export, on a clean clone, twice, still only
+ever answered the question "is this deterministic **here**". The one input that was never
+varied was the one the claim quietly depended on.
+
+This is the same shape as §2.5's timing finding in [`architecture.md`](./architecture.md),
+where a gitignored `.env` made a fresh tree 45× slower and nothing failed, because
+determinism was being checked and tractability was not. Both times the missing check was
+invisible from inside the machine that had already passed it.

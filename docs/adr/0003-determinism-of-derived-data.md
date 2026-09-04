@@ -73,3 +73,33 @@ A derived frame large enough that the final sort stops fitting the machine. The 
 hatch is a dense integer surrogate key assigned in one deterministic pass and sorted on
 instead of the 44-character `msno` — cheaper to sort, at the cost of a lookup table that
 every consumer then has to carry.
+
+## Amendment, 2026-09-04 — the claim names a platform now
+
+This ADR said "across runs" and meant it, and for five days that was checked honestly and
+repeatedly — always on the same operating system, because this repository had no git remote
+and `ci.yml` had therefore never executed. The first push ran it, and `repro --check` on
+`ubuntu-latest` failed on three files.
+
+The drift is not in this code's control: floating-point summation is not associative, so
+INR 413,219 accumulates as INR 413,218 on a different platform's math library, and
+matplotlib resolves different fonts on Linux so the same chart rasterises different bytes.
+No figure this project quotes changed. [`limitations.md` §9](../limitations.md) carries the
+measurement and its CI run id.
+
+**The three rules above are unchanged** — they fix ambiguity inside this code, which is what
+they were written for, and every bug they caught is still caught. What changes is the scope
+of the guarantee they add up to:
+
+> byte-identical across runs **on the platform that produced the file**, and identical to
+> four significant figures across platforms.
+
+GATE 5 runs on `windows-latest` accordingly. A second, non-blocking job keeps running it on
+`ubuntu-latest`, because a documented difference that nothing re-measures is exactly the
+kind of claim this project does not allow itself.
+
+**What would force a revisit (second entry).** Any decision in this system becoming
+sensitive to the fourth significant figure of a rupee total. At that point the exact-byte
+gate stops being conservative and starts being wrong, and the replacement is a per-artifact
+tolerance with a test proving the tolerance cannot mask a real regression — deliberately not
+attempted three days before a deadline on the strength of one observation.
