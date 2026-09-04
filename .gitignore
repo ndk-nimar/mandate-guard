@@ -56,3 +56,6 @@ data/ledger/
 
 # T5.8 repro logs. A run, not a document -- see src/mandateguard/eval/repro.py.
 data/repro/
+
+# scripts/check_drift.py consumes this; it is a run, not a document.
+repro-report.txt

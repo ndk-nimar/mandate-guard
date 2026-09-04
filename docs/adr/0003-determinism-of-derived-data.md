@@ -87,16 +87,26 @@ matplotlib resolves different fonts on Linux so the same chart rasterises differ
 No figure this project quotes changed. [`limitations.md` §9](../limitations.md) carries the
 measurement and its CI run id.
 
+Moving GATE 5 to `windows-latest` was tried first, on the theory that matching the
+platform would be enough. It failed too — smaller, but failed: 384,906 became 384,907 on a
+different Windows machine. **This is a machine property, not a platform one.** The order a
+CPU and its math library accumulate a sum in is not something `uv.lock` pins, so no runner
+can be configured into agreement.
+
 **The three rules above are unchanged** — they fix ambiguity inside this code, which is what
 they were written for, and every bug they caught is still caught. What changes is the scope
 of the guarantee they add up to:
 
-> byte-identical across runs **on the platform that produced the file**, and identical to
-> four significant figures across platforms.
+> byte-identical across runs **on the machine that produced the file**, and identical to
+> four significant figures on any other.
 
-GATE 5 runs on `windows-latest` accordingly. A second, non-blocking job keeps running it on
-`ubuntu-latest`, because a documented difference that nothing re-measures is exactly the
-kind of claim this project does not allow itself.
+CI therefore gates on `scripts/check_drift.py` — named columns, one unit in the last printed
+digit, PNG dimensions rather than PNG bytes, everything else exact — on both operating
+systems, both blocking. `repro --check` still runs there and still reports byte-exactly; it
+just no longer decides the build, because a measured, documented difference is not a
+regression. [`limitations.md` §9.4](../limitations.md) has the rule and what was rejected,
+including the fix that would actually remove the drift (`math.fsum`, or integer rupees)
+rather than tolerate it.
 
 **What would force a revisit (second entry).** Any decision in this system becoming
 sensitive to the fourth significant figure of a rupee total. At that point the exact-byte

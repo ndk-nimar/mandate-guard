@@ -61,17 +61,19 @@ confidently wrong answer is the worst thing to hand over here.
 
 ## 3. Three rules that already caught real bugs
 
-**Every derived file is byte-identical across runs, on the platform that produced it.**
+**Every derived file is byte-identical across runs, on the machine that produced it.**
 [ADR 0003](docs/adr/0003-determinism-of-derived-data.md). Tie-breaks are total, ambiguity
 resolves *against* this project's own headline, and every `COPY` carries an `ORDER BY`.
 Test it by building twice and comparing **bytes**, not counts. Matching counts are not
 proof of reproducibility.
 
-The platform clause is measured, not hedging: GATE 5 on `ubuntu-latest` drifts by INR 1 in
-413,219 and one digit in the fourth decimal of a percentage, and both PNGs change size
-because matplotlib resolves different fonts there. No quoted figure moves.
-`docs/limitations.md` §9 has the numbers and their origin. When you write a determinism
-claim, name the platform in the same sentence.
+The machine clause is measured, not hedging: the same command on two GitHub runners
+returned 384,905 and 384,907 for a total this laptop writes as 384,906, and the PNGs change
+size on Linux because matplotlib resolves different fonts there. No quoted figure moves.
+CI therefore gates on `scripts/check_drift.py` -- named columns, one unit in the last
+printed digit, PNG dimensions not bytes -- while `repro --check` stays the exact-byte gate
+you run before committing. `docs/limitations.md` §9 has the numbers and their origin.
+**When you write a determinism claim, say which machine.**
 
 **Features may only use what was known at the start of the period; labels may use the
 future.** The person-period frame ([`mapping.md`](docs/mapping.md) §5.1) exists to enforce
@@ -123,6 +125,7 @@ uv run python scripts/make_ledger.py --sample  # T5.1  a run's decision ledger
 uv run mandateguard replay --decision-id X     # T5.2  re-run one decision
 uv run mandateguard audit --rail enach         # judge one mandate, clauses named
 uv run mandateguard repro --check              # T5.8  rebuild every artifact, fail on a byte
+uv run python scripts/check_drift.py           # T5.11 what CI gates on instead (limitations.md 9)
 uvicorn mandateguard.app.api:app               # T5.6  the page at http://127.0.0.1:8000/
 ```
 

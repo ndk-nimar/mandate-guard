@@ -557,7 +557,7 @@ something a fallback path should depend on.
 
 ---
 
-## 9. "Byte-identical" holds on one platform, and nobody checked the other one
+## 9. "Byte-identical" holds on one machine, and nobody had checked a second one
 
 Added 2026-09-04, on the day it was found.
 
@@ -618,36 +618,78 @@ significance of a number are separate properties.** A byte gate is stricter than
 decision made from these numbers requires, which is why it is worth having and also why it
 fails on a difference that changes nothing.
 
-### 9.4 What was changed, and what was not
+### 9.4 The obvious fix was tried, and it failed too
 
-GATE 5 now runs on `windows-latest` — the platform the committed artifacts were produced
-on. The honest statement of the guarantee is therefore narrower than the one this project
-carried until today:
+GATE 5 was moved to `windows-latest` — the platform the committed artifacts were produced
+on — and run
+[`33879308817`](https://github.com/gurkanwaldeep927/mandate-guard/actions/runs/33879308817)
+**failed as well**. Smaller, but failed:
 
-> Every derived file is byte-identical across runs **on the platform that produced it**.
-> Across platforms it is identical to four significant figures, and this is measured rather
-> than assumed.
+| | this laptop | GitHub `windows-latest` | GitHub `ubuntu-latest` |
+|---|---|---|---|
+| `P1` ARR retained | 384,906 | 384,90**7** | 384,90**5** |
+| `P4` ARR retained | 413,470 | 413,47**1** | 413,46**9** |
+| `P2` rate | 83.604% | 83.60**5**% | 83.604% |
+| `segments.png` | — | **byte-identical** | +7,240 bytes |
+| `sweeps.png` | — | −13 bytes | +8,687 bytes |
+| `results.md` lines changed | — | 20 | 32 |
 
-What was **not** done, and why:
+So this is not a platform property. **It is a machine property.** Two Windows machines
+running the same command on the same lockfile against the same committed sample produce
+different last digits, because the order a CPU and its math library accumulate a sum in is
+not something a lockfile pins. No CI runner can be configured out of this, and the previous
+version of this section — which called the tolerance-based fix a Phase 6 change on the
+grounds that pinning the platform would do — was wrong within twenty minutes of being
+written.
 
-* **Regenerating the artifacts on Linux and committing those.** It turns CI green and
-  breaks `repro --check` permanently for the author, who develops and demonstrates on
-  Windows. It moves the failure rather than removing it.
-* **Comparing within a tolerance instead of by bytes.** This is the defensible long-term
-  fix and it is also a direct reversal of ADR 0003's own rule — *bytes, not counts* — which
-  exists because a count-based check let the mandate book return 1,053 and 1,054 on
-  identical input without failing. Replacing an exact gate with an approximate one, three
-  days from a deadline, on the strength of a single observed difference, would be trading a
-  rule that has caught real bugs for one that has caught none yet. It needs a considered
-  tolerance per artifact class and a test that the tolerance itself cannot mask a genuine
-  regression. That is a Phase 6 change, not a hotfix.
-* **Pinning fonts and a BLAS backend to make Linux match.** Plausible, unbounded, and it
-  would make the guarantee depend on pins nobody re-verifies.
+### What CI gates on now
 
-The cross-platform check is **not** silently dropped. `results-crossplatform` runs the same
-command on `ubuntu-latest` on every push with `continue-on-error: true`, so the drift stays
-measured and visible without being reported as a regression. If that job ever passes, this
-section is wrong and should be deleted.
+`scripts/check_drift.py`, run on **both** `windows-latest` and `ubuntu-latest`, both
+blocking. The byte comparison still runs and still reports; it no longer decides the build,
+because a measured, documented difference is not a regression. The rule is named rather
+than loose:
+
+| what | rule |
+|---|---|
+| prose lines | byte-identical. Every quoted figure in this document and in `results.md` is one |
+| table cells, named drifting columns | at most **one unit in the last printed digit** |
+| table cells, everything else | exact — including all of `results.md` §5, the Adyen comparison §1 above turns on |
+| PNGs | identical dimensions, not identical bytes |
+| any other artifact | byte-identical, no allowance |
+
+The drifting columns are named in the script: `rate`, `ARR retained (INR)`, `profit at
+optimum`, the budget grid, and any column whose *heading is itself a number* — §4's uplift ×
+backfire plane. That last clause is in the script because the first version of it did not
+have it and three cells of §4 failed a test written to pass. The allowance was measured
+against the artifacts both runners actually produced, not reasoned about.
+
+`tests/test_drift_check.py` pins the boundary from both sides: 413,470 → 413,471 passes and
+413,470 → 413,472 fails. An allowance tested only in the middle of its range is an allowance
+nobody has measured.
+
+The exact-byte gate is **not weakened, only relocated**. `uv run mandateguard repro --check`
+still fails on a single byte and is still what runs before a commit, on the machine the
+artifacts are committed from. That is the check that caught the mandate book returning 1,053
+and 1,054 on identical input, and it would still catch it.
+
+### What was rejected
+
+* **Regenerating the artifacts on Linux and committing those.** Turns CI green and breaks
+  `repro --check` permanently for the author, who develops and demonstrates on Windows. It
+  moves the failure rather than removing it — and after `windows-latest` also failed, it
+  would not even have worked.
+* **Making GATE 5 non-blocking.** The cheapest option and the worst one: a reproducibility
+  gate that cannot fail is not a gate, and "our CI never goes red here" is the weakest
+  sentence this project could offer a reader.
+* **Summing in a fixed order — `math.fsum`, or integer rupees.** This would genuinely remove
+  the arithmetic drift rather than tolerate it, and it is the better fix. It also changes
+  every rupee total by up to a unit, which means regenerating and re-arguing every committed
+  artifact and every number quoted from them, in the value layer, the day before a deadline.
+  It is recorded here as the thing to do next rather than done badly now. It would not touch
+  the PNG difference.
+* **Pinning fonts and a BLAS backend.** Plausible, unbounded, and it makes the guarantee
+  depend on pins nobody re-verifies.
+
 
 ### 9.5 The general failure, which is the part worth keeping
 

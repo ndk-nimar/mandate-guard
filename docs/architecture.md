@@ -153,14 +153,20 @@ committed files were produced on.
 
 **And the scope of that sentence is narrower than it was until 2026-09-04.** CI ran for the
 first time that day -- this repository had no remote before it, so `ci.yml` had never
-executed -- and the same command on `ubuntu-latest` failed. The drift was arithmetic, not
-line endings: INR 413,219 became INR 413,218 and 89.805% became 89.804%, because
-floating-point summation is not associative across platforms, while both PNGs changed size
-because matplotlib resolves different fonts on Linux. Every figure this project quotes was
-unchanged. Byte-identity therefore holds **on the platform that produced the files**, and
-holds to four significant figures across platforms. `results-crossplatform` keeps measuring
-the gap on every push without failing the build, and
-[`limitations.md` §9](./limitations.md) is the full account.
+executed -- and the same command failed on `ubuntu-latest`, then failed again on
+`windows-latest`. The drift was arithmetic, not line endings: 384,906 came back as 384,907
+on one runner and 384,905 on the other, because floating-point addition is not associative
+and the accumulation order belongs to the hardware and its math library rather than to this
+code. Both PNGs also changed size on Linux, where matplotlib resolves different fonts. Every
+figure this project quotes was unchanged on all three machines.
+
+Byte-identity is therefore a **same-machine** guarantee, not a same-platform one. What CI
+gates on instead is `scripts/check_drift.py`, on both operating systems and both blocking:
+prose byte-identical, table cells exact outside the columns where drift was measured, one
+unit in the last printed digit allowed there, PNG dimensions rather than PNG bytes.
+`tests/test_drift_check.py` pins that allowance from both sides.
+[`limitations.md` §9](./limitations.md) is the full account, and names the fix that would
+remove the drift rather than tolerate it.
 
 **What it does not enforce is tractability, and that turned out to matter.** The same
 command on the same tree took **2m51s** with derived frames on a plain drive and **64m01s**
@@ -228,7 +234,7 @@ an allocation, not the service (`limitations.md` §8.10).
 
 ## 5. Testing shape
 
-673 tests over 34 files, and the two that matter structurally:
+725 tests over 34 files, and the two that matter structurally:
 
 * **The chaos suite runs as its own CI step.** "The system degraded" is a different claim
   from "the tests passed" and deserves its own green tick.

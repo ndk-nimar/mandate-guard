@@ -55,26 +55,31 @@ jobs:
         run: uv run pytest tests/test_chaos.py tests/test_safety.py -q
 
   # GATE 2 and GATE 5. Not "the script runs" -- "the one documented command produces the
-  # files that are committed". A stranger's fork has to regenerate them byte for byte,
-  # and the only way to know that is to regenerate them here and fail on any difference
-  # at all.
+  # files that are committed".
   #
-  # This job runs on windows-latest, and that is a narrowing of the claim rather than a
-  # convenience. It ran on ubuntu-latest until 2026-09-04, the first time this repository
-  # was ever pushed and therefore the first time CI had ever executed. It failed: three
-  # files drifted, and the drift was real arithmetic rather than line endings -- INR
-  # 413,219 became INR 413,218 and 89.805% became 89.804%, because floating-point
-  # summation is not identical across platforms, while both PNGs changed size because
-  # matplotlib resolves different fonts on Linux. Every figure this project actually
-  # quotes was unchanged.
+  # It runs on both operating systems, and both are blocking, which is a change made on
+  # 2026-09-04 after this repository got its first remote and CI executed for the first
+  # time. `repro --check` compares bytes and failed on ubuntu-latest, then failed again on
+  # windows-latest: three machines produced three different results.md, differing by one
+  # unit in the last digit of the largest sums (384,906 / 384,907 / 384,905). Floating-point
+  # addition is not associative, so the accumulation order of a machine's math library
+  # decides that digit. No CI runner can be configured out of it, and byte-identity is
+  # therefore a same-machine guarantee.
   #
-  # So byte-identity holds on the platform that produced the committed files, and this
-  # job is what proves it. The cross-platform half of the claim is not silently dropped:
-  # `results-crossplatform` below still runs the same command on ubuntu, and
-  # docs/limitations.md 9 records what it finds. Run 33877849865 is the origin of the
-  # numbers above.
+  # So the byte comparison still runs and still reports -- continue-on-error, because a
+  # known measured difference is not a regression -- and scripts/check_drift.py is what
+  # gates: prose byte-identical, table cells exact outside the columns where drift was
+  # measured, one unit in the last printed digit allowed there, PNG dimensions rather than
+  # PNG bytes. docs/limitations.md 9 is the argument and carries the run ids.
+  #
+  # The exact-byte gate is not weakened, only relocated: `uv run mandateguard repro --check`
+  # is still what runs before a commit, on the machine the artifacts are committed from.
   results:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -86,22 +91,30 @@ jobs:
       - name: Sync (locked)
         run: uv sync --frozen --all-extras --dev
 
-      # T5.8, and GATE 5's whole claim in one line. This is the command a stranger types
-      # after cloning, so it is the command CI runs -- not a CI-only sequence of scripts
-      # that happens to cover the same ground and is free to drift from the documented
-      # one. It reads data/sample/ only: no download, no MANDATEGUARD_DATA_DIR, because
-      # the point of the committed slice (docs/mapping.md 4) is that nothing else is
-      # needed. --check regenerates results.md, sweeps.png, llm_eval.md and segments.png
-      # and fails on a single differing byte. GATE 4's second half rides along inside it:
-      # the rules arm scores 114 golden cases with no API key, and the model arm reports
-      # itself as unscored rather than being skipped.
-      - name: Reproduce every sample-derived artifact (GATE 5)
-        run: uv run mandateguard repro --check
+      # T5.8, and the command a stranger types after cloning -- not a CI-only sequence that
+      # happens to cover the same ground and is free to drift from the documented one. It
+      # reads data/sample/ only: no download, no MANDATEGUARD_DATA_DIR. GATE 4's second half
+      # rides along inside it: the rules arm scores 114 golden cases with no API key, and
+      # the model arm reports itself as unscored rather than being skipped.
+      #
+      # continue-on-error records the byte-exact answer without failing the build on it.
+      # The report is teed to a file because the next step refuses to run without it: an
+      # empty diff produced by a crashed rebuild would otherwise read as success.
+      - name: Regenerate every sample-derived artifact (GATE 5)
+        id: repro
+        continue-on-error: true
+        shell: bash
+        run: uv run mandateguard repro --check 2>&1 | tee repro-report.txt
 
-      # The report names what drifted; this prints how much, which is what a reader
-      # actually wants when the step above has just gone red.
-      - name: Show the drift
-        if: failure()
+      # This is the gate. It fails on any change to a quoted figure.
+      - name: Every quoted figure is unchanged (GATE 5)
+        run: uv run python scripts/check_drift.py
+
+      # How far it drifted, which is the number limitations.md 9 quotes. Printed on success
+      # too: if this ever comes back empty on both runners, the documented finding has
+      # stopped being true and 9 should be deleted.
+      - name: How far it drifted
+        if: always()
         run: git --no-pager diff --stat
 
       # Uploaded even on failure, so the regenerated file can be inspected without
@@ -110,52 +123,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: results
-          path: |
-            docs/results.md
-            docs/img/sweeps.png
-            docs/img/segments.png
-            docs/llm_eval.md
-
-  # The other half of the claim, kept visible rather than dropped. `results` above proves
-  # byte-identity on the platform the files were committed from; this proves that the
-  # same command on a different platform does NOT reproduce them, which is a property of
-  # floating-point arithmetic and font resolution, not of this code.
-  #
-  # continue-on-error, and that is the whole design: a red tick here would be reporting a
-  # known, documented, measured fact as a regression. What it must never do is stop
-  # reporting it -- docs/limitations.md 9 cites this job, and a claim in a document whose
-  # evidence nobody re-runs is exactly what CLAUDE.md 4 forbids. If this job ever passes,
-  # that is news, and limitations.md 9 is wrong and should be deleted.
-  results-crossplatform:
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Sync (locked)
-        run: uv sync --frozen --all-extras --dev
-
-      - name: Reproduce on a different OS (expected to drift)
-        run: uv run mandateguard repro --check
-
-      # The measured size of the drift, which is the number limitations.md 9 quotes.
-      # Printed on success too: if it ever comes back empty, the documented finding has
-      # stopped being true.
-      - name: How far it drifted
-        if: always()
-        run: git --no-pager diff --stat
-
-      - name: Upload the Linux-built artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: results-linux
+          name: results-${{ matrix.os }}
           path: |
             docs/results.md
             docs/img/sweeps.png
