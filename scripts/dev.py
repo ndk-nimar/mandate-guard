@@ -72,6 +72,9 @@ def main() -> int:
         print(f"FAIL: API never became healthy at {HEALTH_URL}", file=sys.stderr)
         return 1
     print(f"API up at {HEALTH_URL}")
+    # The T5.6 page is served by the same uvicorn. Name it before the spike, or a
+    # demo operator reads the terminal top-down and opens the wrong one.
+    print(f"UI  up at http://{API_HOST}:{API_PORT}/   <- the surface")
 
     procs.append(
         subprocess.Popen(

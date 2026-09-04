@@ -47,8 +47,8 @@ what breaks if the choice turns out to be wrong.
 | LLM eval cost | **Batch API** for the ~120-case golden set | 50% cost, and CI is not latency-sensitive | live calls on every push | Meaningful spend across ~50 pushes |
 | Notice validation | **Plain Python linter + pytest** | Regulated text needs a *deterministic* gate. An LLM checking an LLM is not a gate | LLM-as-judge only | Unvalidated model text reaching a regulated notice — the single worst failure mode in this project |
 | API | **FastAPI + uvicorn** | Reuses the Pydantic models directly; OpenAPI docs come free | Flask (no typing), Django (far too heavy) | — |
-| UI | **Streamlit + httpx** | Fastest path to a working budget dial and live charts | Next.js (~2 days), Gradio (ML-demo shaped), Dash (more boilerplate) | The video loses its most memorable moment |
-| Charts | **matplotlib** for CI-committed PNGs; **Streamlit native** for the live UI | CI has to emit static artefacts the repo commits; the UI needs interactivity | plotly everywhere (heavier CI) | — |
+| UI | **One hand-written HTML page served by FastAPI** (revised 2026-09-04) | Total control over colour and typography, no build step, no second process, and the page can only reach the API over HTTP so the boundary stays real | **Streamlit** -- chosen originally and rejected on delivery: `config.toml` exposes five colours and one font family, so a distinct visual identity needs CSS-injection hacks that break on upgrade. Also Next.js (~2 days), Gradio (ML-demo shaped), Dash (boilerplate) | The video loses its most memorable moment. Cost of the revision: ~3 hours against Streamlit's ~20 minutes |
+| Charts | **matplotlib** for CI-committed PNGs; **hand-rolled inline SVG** for the live page | CI has to emit static artefacts the repo commits; the page needs interactivity **and must not need the network at demo time**, which rules out a CDN | plotly everywhere (heavier CI), any charting library over a CDN (a demo that fails offline) | The two do not share a palette yet -- `docs/tasks.md` T5.6 records that as deferred |
 | Ledger | **Append-only JSONL** | Greppable, diffable, auditable by hand, and append-only is provable in a test | SQLite (mutable), Postgres (infrastructure) | The "auditable non-action" claim gets weaker |
 | CLI | **typer** | Shares the Pydantic types; `replay` and `repro` both need a real CLI | argparse, click | — |
 | Tests | **pytest + pytest-cov** | Chaos tests are built on `monkeypatch` | unittest | — |
@@ -104,7 +104,7 @@ mandate-guard/
 │   ├── agent/        # L6  4 bounded Claude jobs + the deterministic compliance linter
 │   ├── ledger/       # L7  append-only JSONL + replay
 │   ├── safety/       # L8  shadow mode, kill switch, spend cap, degradation ladder
-│   ├── app/          # L9  FastAPI service + Streamlit surface
+│   ├── app/          # L9  FastAPI service + static/ page + Streamlit spike
 │   └── eval/         #     harness, arms, holdout, sweeps, metrics
 ├── config/params.yaml
 ├── policy/mandate_policy.yaml

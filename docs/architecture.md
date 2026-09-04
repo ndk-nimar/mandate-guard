@@ -193,14 +193,25 @@ an allocation, not the service (`limitations.md` §8.10).
   weekly batch over a book that fits in memory; a database would be a dependency with no
   question to answer. `stack.md` carries the rejected alternative.
 * **No queue, no scheduler.** The week loop is a loop.
-* **No Streamlit surface.** T5.6 was cut in the documented cut order (`tasks.md`), and
-  `app/ui.py` is the two-process spike from T0.5, not a product. Raw matplotlib PNGs carry
-  the charts. What this costs: the budget dial that would let a judge feel the frontier
-  move is a static plot instead.
+* **No framework on the surface.** T5.6 was cut on 2026-09-03 and **un-cut on
+  2026-09-04** once two measurements showed a live dial was affordable: five arms over a
+  12-week horizon solve in 1.67s, against the 92s a whole `make_results` run takes. The
+  page at `/` is one hand-written HTML file with inline SVG -- no build step, no bundler,
+  no CDN, because a demo must not need the network. Streamlit was the original choice and
+  is now the rejected one (`stack.md`): its `config.toml` exposes five colours and one font
+  family, so a distinct visual identity needs CSS injection that breaks on upgrade.
+  `app/ui.py` survives as the T0.5 two-process spike, which is what keeps the API boundary
+  exercised from a second client.
+* **The page cannot write.** GET-only by construction -- `/ladder`, `/refusal`, `/runs` and
+  `/ledger` exist so that nothing on it needs a write request, and a test asserts the file
+  contains no form element and none of the vocabulary of contacting anyone. What this
+  costs: the sensitivity heatmap is still a static PNG, and the PNGs do not yet share the
+  page's palette.
 * **No authentication on the API.** It is a demonstration surface running on localhost, and
   saying so is better than a login form that implies more.
-* **One process.** `scripts/dev.py` starts the API and the Streamlit stub together on
-  Windows, which was spike S3's whole question.
+* **One process for the real surface.** The page is served by the same uvicorn that serves
+  the API, so a demo needs one command. `scripts/dev.py` still starts the Streamlit spike
+  alongside it, which was spike S3's whole question.
 
 ---
 

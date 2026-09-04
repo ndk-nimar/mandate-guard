@@ -1,22 +1,35 @@
-"""T5.5 -- the FastAPI service. Four endpoints, and the reasons they are shaped this way.
+"""T5.5 / T5.6 -- the FastAPI service, and the page it serves.
 
     uv run uvicorn mandateguard.app.api:app --reload
-    open http://127.0.0.1:8000/docs
+    open http://127.0.0.1:8000/        the surface
+    open http://127.0.0.1:8000/docs    the API
 
 | endpoint | answers |
 |---|---|
 | `POST /allocate` | given these mandates and this budget, who is asked and who is not |
+| `GET /ladder` | every arm at one notch of the budget dial (T5.6) |
+| `GET /refusal` | the four rupee terms behind a decision not to ask (T5.6) |
 | `POST /explain` | why was this mandate not asked, in rupees |
 | `POST /audit` | is this mandate compliant, and under which clauses |
+| `GET /runs` | which ledgers exist |
 | `GET /ledger` | what did a run decide, asked and not-asked |
 | `GET /replay/{decision_id}` | re-run one historical decision and compare it |
+| `GET /policy` | which rulebook is running, and where it came from |
+| `GET /` | the surface: a read-only page, GET-only, shadow mode in its masthead |
 
-### Every endpoint goes through the guard
+### Every endpoint that could cause a contact goes through the guard
 
 `safety/guard.py` is the only path to acting, and an HTTP layer is exactly the fourth call
 site that would otherwise skip it (`docs/seekha.md` #104). So `/allocate` asks the guard for
 each contact it would make, and the response says how many were authorised, how many were
 refused, and which rung of the degradation ladder the service is on.
+
+`/ladder` and `/refusal` are the deliberate exception, and they are not a loophole: they
+replay a committed historical book to reproduce `docs/results.md`, so there is nothing to
+authorise. Running them through `authorise` was tried and rejected on a number -- `P1` at
+the top notch makes 16,236 simulated asks against a 500/hour rate limit, so a guarded
+ladder would chart the limiter rather than the arms. They still halt on a policy-hash
+mismatch, and they say `simulated: true` as well as `acted: false`.
 
 In the shipped configuration that rung is **shadow**, so `/allocate` returns a plan and
 nothing is sent. The response says so in a field rather than in documentation, because a
@@ -42,13 +55,18 @@ so in its own description, so nobody files it as a performance bug.
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from mandateguard.agent.auditor import RulesAuditor
 from mandateguard.agent.explainer import RefusalExplainer, RefusalFacts
+from mandateguard.allocator.baselines import bulk_channel
 from mandateguard.allocator.mckp import MCKPPolicy
+from mandateguard.app import ladder
+from mandateguard.app.ladder import LadderView
 from mandateguard.data.paths import ROOT
 from mandateguard.ledger.replay import ReplayRefused, ReplayResult, replay
 from mandateguard.ledger.store import Ledger, LedgerBroken
@@ -61,6 +79,7 @@ from mandateguard.models import (
 )
 from mandateguard.policy.loader import load_params, load_policy, policy_hash
 from mandateguard.safety.guard import Action, ActionKind, Degradation, Guard
+from mandateguard.value.price import Pricer
 
 app = FastAPI(
     title="MandateGuard",
@@ -192,6 +211,236 @@ def allocate(request: AllocateRequest) -> AllocateResponse:
 
 
 # --------------------------------------------------------------------------------
+# /ladder -- the budget dial. Simulated, and it says so in a field.
+# --------------------------------------------------------------------------------
+
+
+@app.get("/ladder", tags=["decide"], response_model=LadderView)
+def ladder_rung(notch: int = Query(0, ge=0, description="0..16, a notch of the budget dial")):
+    """Every arm at one budget on the committed sample, for the surface's dial.
+
+    **This endpoint asks the guard for its state and never for authorisation, which is a
+    deliberate exception and the only one.** `Guard.authorise` gates *acting*, and there is
+    nothing here to act on: this replays a historical committed book to reproduce the table
+    in `docs/results.md` §3, exactly as `scripts/make_results.py` does offline -- and that
+    script does not call the guard either, correctly, because `world.run` is a simulator
+    rather than a send queue.
+
+    Running it through `authorise` was considered and rejected on a number. `P1` at the top
+    notch spends 16,236 asks against `safety.max_sends_per_window` of 500 per hour, so a
+    guarded ladder would start refusing simulated contacts at the 501st and the chart would
+    report the rate limiter's counters instead of the arms' behaviour. A safety layer that
+    silently changes the measurement it is protecting is not protecting it.
+
+    What it *does* keep is the halt: a service running under a mismatched policy hash must
+    not serve numbers, including simulated ones. And the response carries both `acted:
+    false` and `simulated: true`, because the first alone still reads like a plan somebody
+    could execute.
+    """
+    guard = _guard()
+    state, why = guard.state()
+    if state is Degradation.HALTED:
+        raise HTTPException(status_code=503, detail=why)
+
+    try:
+        notches = ladder.budgets(_PARAMS)
+    except FileNotFoundError as exc:
+        # The GATE 5 path: a fresh clone has no derived frames until make_results.py runs.
+        # 503 with the message load_snapshot already wrote, which names the two scripts.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if notch >= len(notches):
+        raise HTTPException(
+            status_code=404,
+            detail=f"notch {notch} is off the dial: this ladder has {len(notches)} notches "
+            f"(0..{len(notches) - 1}), from INR {notches[0]:,.2f} to INR {notches[-1]:,.2f}.",
+        )
+
+    rung, cached = ladder.rung(_PARAMS, notch)
+    channel = bulk_channel(_PARAMS.channels)
+    return LadderView(
+        snapshot_id=ladder.SNAPSHOT_ID,
+        mandates=len(ladder.book(_PARAMS)),
+        weeks=_PARAMS.horizon.weeks,
+        bulk_channel=channel.name,
+        bulk_channel_cost_inr=channel.cost_inr,
+        budgets=notches,
+        arms_excluded=["P5"],
+        excluded_because=(
+            "P5 WhittleIndex is ~27.9s per point, so a 17-notch ladder would be about eight "
+            "minutes. docs/results.md 2 is where it is measured; 3 is a five-arm table for "
+            "the same reason."
+        ),
+        rung=rung,
+        cached=cached,
+        mode=_PARAMS.safety.mode,
+        degradation=state.name,
+        acted=False,
+        simulated=True,
+        policy_hash=policy_hash(),
+    )
+
+
+# --------------------------------------------------------------------------------
+# /refusal -- the four terms behind a decision not to ask.
+# --------------------------------------------------------------------------------
+
+
+class RefusalTerms(BaseModel):
+    """One not-asked mandate, priced, with the terms kept apart so they can be read.
+
+    **The four money fields sum.** `net = gain - backfire - fatigue - channel_cost`, which
+    is `AskPrice.net_inr`'s own definition. An earlier draft of this panel listed lapse
+    loss, backfire, fatigue and *reachability* as four peers -- and those do not sum,
+    because reachability is **inside** backfire: `value/ltv.py` prices a revocation at
+    `L*(1-r) + alpha*R`, where the second term is the channel to that customer. Four
+    numbers that do not add up, on the panel that is this project's differentiator, is the
+    worst possible place for that mistake.
+
+    So reachability arrives as `reachability_at_risk_inr`, an annotation on the backfire
+    row rather than a fifth term -- and it is the whole point of the panel: the refusal is
+    not about five paise of email, it is about possibly losing the ability to ever reach
+    this customer again.
+    """
+
+    mandate_id: str
+    week: int
+    channel: str = Field(description="the channel that would have been used, had we asked")
+    hazard: float
+    ltv_remaining_inr: float
+
+    gain_inr: float = Field(description="lapses this ask would prevent, in rupees")
+    backfire_inr: float = Field(description="revocations this ask would cause, in rupees")
+    reachability_at_risk_inr: float = Field(
+        description="the part of backfire that is the lost channel, not the lost mandate"
+    )
+    fatigue_inr: float = Field(description="patience spent")
+    channel_cost_inr: float = Field(description="what it costs to send")
+    net_inr: float = Field(description="gain - backfire - fatigue - channel_cost")
+
+    deaths_prevented: float
+    revocations_caused: float
+    kind: str = Field(
+        description="not_worth_asking when the best ask still nets negative; outbid when it "
+        "was worth making and the budget went to someone else"
+    )
+    reason: str = Field(description="the allocator's own words, from Decision.reason")
+
+
+class RefusalView(BaseModel):
+    notch: int
+    budget_inr: float
+    week: int
+    asked: int
+    not_asked: int
+    refusals: list[RefusalTerms]
+    simulated: bool
+    mode: str
+
+
+@app.get("/refusal", tags=["decide"], response_model=RefusalView)
+def refusal(
+    notch: int = Query(0, ge=0, description="which notch of the dial to price"),
+    limit: int = Query(5, ge=1, le=50, description="how many refusals to return"),
+):
+    """Why the allocator declined to ask, in rupees, for the most expensive refusals.
+
+    One week of `P4`, not twelve: this panel answers "what was this decision made of",
+    which is a single-period question. The dial next to it answers the horizon question.
+
+    Sorted by how close the refusal was -- least negative `net_inr` first -- because the
+    marginal refusals are the interesting ones. A mandate with a net of -900 was never a
+    candidate; a mandate at -0.40 is the allocator working.
+    """
+    state, why = _guard().state()
+    if state is Degradation.HALTED:
+        raise HTTPException(status_code=503, detail=why)
+
+    try:
+        notches = ladder.budgets(_PARAMS)
+        book = ladder.book(_PARAMS)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if notch >= len(notches):
+        raise HTTPException(
+            status_code=404, detail=f"notch {notch} is off a {len(notches)}-notch dial"
+        )
+
+    budget = notches[notch]
+    week = [
+        MandateWeek(
+            mandate_id=m.mandate_id,
+            week=0,
+            hazard=m.hazards[0],
+            alive=1.0,
+            ltv_remaining_inr=m.ltv_remaining_inr,
+            reachability_value_inr=m.reachability_value_inr,
+            recovery_after_lapse=m.recovery_after_lapse,
+            recovery_after_revocation=m.recovery_after_revocation,
+            asks_so_far=0,
+            hazard_path=m.hazards,
+            weeks_since_last_ask=None,
+        )
+        for m in book
+    ]
+    plan = MCKPPolicy(_PARAMS).allocate(week, budget, 0)
+    rows = {row.mandate_id: row for row in week}
+    entries = {m.mandate_id: m for m in book}
+
+    pricer = Pricer(_PARAMS)
+    alpha = _PARAMS.value.alpha_reachability
+    nu = _PARAMS.value.nu_complaint
+
+    priced: list[RefusalTerms] = []
+    for decision in plan.decisions:
+        if decision.kind is not DecisionKind.NOT_ASKED:
+            continue
+        row = rows[decision.mandate_id]
+        # NOT `pricer.best_channel`. That returns None unless the best ask is *worth
+        # making*, so using it here silently dropped every mandate the allocator refused
+        # because nothing was worth it -- which is the entire population this panel exists
+        # to explain. The one row that survived was an `outbid` mandate, and a panel
+        # titled "why we did not ask" that can only show mandates we wanted to ask is
+        # worse than no panel. So price every channel and take the best, sign and all.
+        priced_channels = [pricer.price(row, channel) for channel in _PARAMS.channels]
+        price = max(priced_channels, key=lambda p: (p.net_inr, -p.channel_cost_inr, p.channel))
+        reach = entries[decision.mandate_id].reachability_value_inr
+        priced.append(
+            RefusalTerms(
+                mandate_id=price.mandate_id,
+                week=0,
+                channel=price.channel,
+                hazard=row.hazard,
+                ltv_remaining_inr=row.ltv_remaining_inr,
+                gain_inr=price.gain_inr,
+                backfire_inr=price.backfire_inr,
+                reachability_at_risk_inr=nu * price.revocations_caused * alpha * reach,
+                fatigue_inr=price.fatigue_inr,
+                channel_cost_inr=price.channel_cost_inr,
+                net_inr=price.net_inr,
+                deaths_prevented=price.deaths_prevented,
+                revocations_caused=price.revocations_caused,
+                kind="outbid" if price.net_inr > 0 else "not_worth_asking",
+                reason=decision.reason,
+            )
+        )
+
+    # Least-negative first: the marginal refusals are the interesting ones. A mandate at
+    # -900 was never a candidate; a mandate at -0.40 is the allocator working.
+    priced.sort(key=lambda p: -p.net_inr)
+    return RefusalView(
+        notch=notch,
+        budget_inr=budget,
+        week=0,
+        asked=sum(1 for d in plan.decisions if d.kind is DecisionKind.ASKED),
+        not_asked=len(priced),
+        refusals=priced[:limit],
+        simulated=True,
+        mode=_PARAMS.safety.mode,
+    )
+
+
+# --------------------------------------------------------------------------------
 # /explain.
 # --------------------------------------------------------------------------------
 
@@ -246,6 +495,28 @@ def audit(context: MandateAuditContext) -> MandateVerdict:
 # --------------------------------------------------------------------------------
 # /ledger.
 # --------------------------------------------------------------------------------
+
+
+class RunIndex(BaseModel):
+    runs: list[str]
+
+
+@app.get("/runs", tags=["audit"], response_model=RunIndex)
+def runs() -> RunIndex:
+    """Which ledgers exist. `/ledger` needs a `run_id` and nothing else hands one out.
+
+    A surface cannot hard-code the name: a run id looks like
+    `P4-sample-s20260905-b500.00`, which encodes `params.seed` and
+    `horizon.budget_inr_per_week`. Both live in `config/params.yaml`, so a typed literal
+    would drift from the ledger the moment either changed, and the ledger tab would show an
+    empty state that looked like "no decisions" rather than "wrong filename".
+
+    `data/ledger/` is gitignored, so an empty list is the ordinary state of a fresh clone
+    rather than an error: run `scripts/make_ledger.py --sample` and there will be one.
+    """
+    if not LEDGER_DIR.is_dir():
+        return RunIndex(runs=[])
+    return RunIndex(runs=sorted(path.stem for path in LEDGER_DIR.glob("*.jsonl")))
 
 
 class LedgerPage(BaseModel):
@@ -342,6 +613,54 @@ def policy() -> PolicySummary:
         rules=len(_POLICY.rules),
         clauses=sorted({rule.clause for rule in _POLICY.rules}),
     )
+
+
+# --------------------------------------------------------------------------------
+# The surface. Last, because the file is service-first and an HTML route at the top
+# would make the OpenAPI document open on a presentation concern.
+# --------------------------------------------------------------------------------
+
+STATIC = Path(__file__).parent / "static"
+
+_ASSETS: dict[str, tuple[Path, str]] = {
+    "newsreader.woff2": (STATIC / "fonts" / "newsreader.woff2", "font/woff2"),
+    "jetbrains-mono.woff2": (STATIC / "fonts" / "jetbrains-mono.woff2", "font/woff2"),
+}
+"""An allowlist, not a directory mount, and for two reasons.
+
+**Python does not know what a woff2 is.** `mimetypes.guess_type("a.woff2")` returns
+`(None, None)` on 3.12, so Starlette's `FileResponse` -- and therefore any `StaticFiles`
+mount -- serves both fonts as `text/plain`. Browsers usually tolerate that for `@font-face`.
+"Usually" is not a standard to demo on, and it fails outright under `nosniff`.
+
+**A mount publishes whatever lands in the directory.** In a project whose central claim is
+that the guard is the only path to acting, an accidentally-public directory is a needlessly
+open door. Three files are named here; a fourth has to be added on purpose.
+"""
+
+
+@app.get("/", include_in_schema=False, response_class=FileResponse)
+def surface() -> FileResponse:
+    """The page. Read-only, GET-only, and it says shadow mode in its masthead.
+
+    `include_in_schema=False` keeps `/docs` about the service. The page is a *client* of
+    this API in exactly the way `app/ui.py` is -- it crosses the HTTP boundary over `fetch`
+    and imports no allocator -- so the boundary stays real rather than decorative.
+    """
+    return FileResponse(STATIC / "index.html", media_type="text/html; charset=utf-8")
+
+
+@app.get("/static/{name}", include_in_schema=False, response_class=FileResponse)
+def asset(name: str) -> FileResponse:
+    """Serve one named asset with an explicit media type. 404 on anything not listed."""
+    if name not in _ASSETS:
+        raise HTTPException(status_code=404, detail=f"no asset {name!r}")
+    path, media_type = _ASSETS[name]
+    if not path.is_file():
+        # A vendored font that did not ship must not 500. The page declares a real
+        # fallback stack and is designed to look finished without these.
+        raise HTTPException(status_code=404, detail=f"{name} is not vendored in this build")
+    return FileResponse(path, media_type=media_type)
 
 
 __all__ = ["app"]

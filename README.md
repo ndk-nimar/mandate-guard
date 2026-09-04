@@ -40,7 +40,9 @@ uv run mandateguard audit --rail enach --amount 20000   # judge one mandate, cla
 uv run mandateguard replay --decision-id <id>       # re-run one historical decision
 uv run mandateguard verify-ledger <path>            # walk the hash chain
 uv run python scripts/compile_policy.py --check     # re-verify 20 rules against the circular
-uvicorn mandateguard.app.api:app                    # /allocate /audit /explain /ledger /replay
+uvicorn mandateguard.app.api:app                    # then open http://127.0.0.1:8000/
+#   the page: a 17-notch budget dial, the five-arm chart, one refusal priced in rupees
+#   the API:  /ladder /refusal /runs /allocate /audit /explain /ledger /replay
 ```
 
 ---
@@ -127,7 +129,8 @@ weaker. They are recorded where they were used, not only where they were found.
   headline's sign depends on where in that region you stand.
 * **Not live.** Shadow mode is the default and the HTTP response says `acted: false` as a
   field, not as a promise.
-* **No frontend.** T5.6 was cut in the documented cut order. The charts are PNGs.
+* **Not a product surface.** The page at `/` is a read-only view of the committed sample:
+  GET-only, shadow mode in the masthead, and it cannot issue a write of any kind.
 
 Full data lives outside the repository via `MANDATEGUARD_DATA_DIR` (see `.env.example`) —
 the raw files are ~4 GB. Nothing in the quickstart above needs them.

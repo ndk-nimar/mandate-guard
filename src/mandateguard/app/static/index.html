@@ -1,0 +1,572 @@
+<!doctype html>
+<!--
+  T5.6 -- the surface. One page, no framework, no build step, no CDN.
+
+  Read-only and GET-only by construction: no HTML form element, and no write request of any
+  kind. /ladder, /refusal, /runs and /ledger exist precisely so that nothing here needs one.
+  A page that cannot issue a write cannot be mistaken for one that contacts anybody, and
+  `tests/test_ladder.py::test_the_surface_cannot_send_anything` pins it -- which is why this
+  comment describes the property without spelling the tokens the test forbids.
+
+  It leads with asks and revocations, not rupees, and that was a correction. The first
+  draft led with "gain over the P0 floor" -- and on a book earning INR 413,219 the arms
+  differ by INR 213, which reads as noise. Worse, it drew that across two panels with
+  separate scales, so P1's bar at -29,124 and P4's at +213 came out the same length. The
+  first person to look at it said, correctly, that nothing could be told from it.
+
+  What a customer would actually notice has the range to be legible: 16,236 asks against
+  109, and 90.6 revocations against 0.3, on one shared scale per row. Profit stays in the
+  table underneath, where a 0.05% spread belongs.
+
+  Every number is monospace with tabular figures so columns do not jitter as the dial
+  moves. Fonts are vendored (or fall back to a real system stack) -- a demo must not need
+  the network.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MandateGuard — re-consent allocator</title>
+<style>
+  @font-face {
+    font-family: "Newsreader"; src: url("/static/newsreader.woff2") format("woff2");
+    font-weight: 300 700; font-display: swap;
+  }
+  @font-face {
+    font-family: "JetBrains Mono"; src: url("/static/jetbrains-mono.woff2") format("woff2");
+    font-weight: 400 600; font-display: swap;
+  }
+
+  :root {
+    --paper: #FAF8F3;
+    --paper-sunk: #F2EFE7;
+    --ink: #16171A;
+    --ink-soft: #55565B;
+    --oxide: #9B2D20;
+    --oxide-wash: #F3E3E0;
+    --verdigris: #2E6E63;
+    --verd-wash: #E1EBE8;
+    --rule: #DCD7CA;
+    --rule-firm: #B4AC99;
+    --radius: 2px;
+    --serif: "Newsreader", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--serif); font-size: 15px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet { max-width: 1080px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* Numbers never jitter. Tabular figures, everywhere, without exception. */
+  .n { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px; }
+
+  .label {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--ink-soft);
+  }
+
+  /* ---- masthead ---------------------------------------------------------- */
+  header { border-bottom: 2px solid var(--ink); padding: 28px 0 14px; }
+  h1 { font-size: 34px; font-weight: 600; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--ink-soft); font-size: 15px; margin: 2px 0 0; }
+  .masthead-grid {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end;
+    justify-content: space-between;
+  }
+  .ident { text-align: right; }
+
+  .shadow-strip {
+    margin: 12px 0 0; padding: 8px 12px;
+    background: var(--oxide-wash); border-left: 3px solid var(--oxide);
+    color: var(--oxide); font-size: 13px; border-radius: var(--radius);
+  }
+  .shadow-strip strong { font-family: var(--mono); font-size: 12px; letter-spacing: .04em; }
+
+  /* ---- bands ------------------------------------------------------------- */
+  section { padding: 32px 0 8px; border-bottom: 1px solid var(--rule); }
+  section:last-of-type { border-bottom: 0; }
+  h2 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .note { color: var(--ink-soft); font-size: 14px; margin: 0 0 20px; max-width: 66ch; }
+
+  /* ---- dial -------------------------------------------------------------- */
+  .dial-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+  .budget { font-family: var(--mono); font-size: 24px; font-variant-numeric: tabular-nums; }
+  .affordable { color: var(--ink-soft); font-size: 13px; }
+  input[type=range] {
+    width: 100%; margin: 14px 0 4px; accent-color: var(--ink);
+    background: transparent; cursor: pointer;
+  }
+  input[type=range]:focus-visible { outline: 2px solid var(--oxide); outline-offset: 4px; }
+  .dial-ends {
+    display: flex; justify-content: space-between;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-soft);
+  }
+
+  /* ---- the verdict, and the two-arm comparison --------------------------- */
+  .verdict-line {
+    font-size: 21px; line-height: 1.45; margin: 26px 0 30px; max-width: 60ch;
+  }
+  .verdict-line b { font-weight: 600; }
+  .verdict-line .big { font-family: var(--mono); font-variant-numeric: tabular-nums;
+                       font-size: 20px; font-weight: 600; }
+  .verdict-line .loss { color: var(--oxide); }
+  .verdict-line .gain { color: var(--verdigris); }
+
+  .versus { border-top: 2px solid var(--ink); }
+  .versus-head, .crow {
+    display: grid; grid-template-columns: 168px 1fr 1fr 92px;
+    gap: 18px; align-items: center;
+  }
+  .versus-head { padding: 10px 0 12px; border-bottom: 1px solid var(--rule-firm); }
+  .versus-head span { font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+                      text-transform: uppercase; color: var(--ink-soft); }
+  .versus-head em { display: block; font-family: var(--serif); font-style: normal;
+                    font-size: 12px; text-transform: none; letter-spacing: 0;
+                    color: var(--ink-soft); margin-top: 2px; }
+  .col-a { color: var(--oxide) !important; }
+  .col-b { color: var(--verdigris) !important; }
+
+  .crow { padding: 16px 0; border-bottom: 1px solid var(--rule); }
+  .crow-name { font-size: 15px; }
+  .crow-name em { display: block; font-style: normal; font-size: 12px;
+                  color: var(--ink-soft); margin-top: 2px; }
+  .cell { display: flex; flex-direction: column; gap: 5px; }
+  .cell .amount { font-family: var(--mono); font-variant-numeric: tabular-nums;
+                  font-size: 19px; font-weight: 600; }
+  .cell.a .amount { color: var(--oxide); }
+  .cell.b .amount { color: var(--verdigris); }
+  .track { position: relative; height: 9px; background: var(--paper-sunk);
+           border-radius: var(--radius); overflow: hidden; }
+  .bar { position: absolute; left: 0; top: 0; bottom: 0; border-radius: var(--radius); }
+  .cell.a .bar { background: var(--oxide); }
+  .cell.b .bar { background: var(--verdigris); }
+  .ratio { font-family: var(--mono); font-size: 12px; color: var(--ink-soft);
+           text-align: right; }
+  .unspent { font-size: 14px; color: var(--ink-soft); margin: 18px 0 4px;
+             border-left: 3px solid var(--verdigris); padding-left: 12px; max-width: 66ch; }
+  details { margin-top: 26px; }
+  summary { cursor: pointer; padding: 8px 0; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .bar { transition: width 140ms ease-out; }
+  }
+  @media (max-width: 720px) {
+    .versus-head, .crow { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .versus-head span:first-child, .crow-name { grid-column: 1 / -1; }
+    .ratio { grid-column: 1 / -1; text-align: left; }
+  }
+
+  /* ---- detail table ------------------------------------------------------ */
+  .scroller { overflow-x: auto; margin-top: 8px; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; }
+  th, td { padding: 6px 10px; text-align: right; border-bottom: 1px solid var(--rule); }
+  th:first-child, td:first-child { text-align: left; }
+  th { font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+       letter-spacing: .06em; color: var(--ink-soft); font-weight: 400;
+       border-bottom: 1px solid var(--rule-firm); }
+  td { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+  tbody tr:nth-child(even) { background: var(--paper-sunk); }
+
+  /* ---- refusal ----------------------------------------------------------- */
+  .ledger-terms { max-width: 560px; border-top: 2px solid var(--ink); padding-top: 10px; }
+  .term { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 5px 0; }
+  .term.sub { padding-left: 18px; color: var(--ink-soft); font-size: 13px;
+              border-left: 1px solid var(--rule-firm); margin-left: 4px; }
+  .term.total { border-top: 1px solid var(--ink); margin-top: 8px; padding-top: 10px;
+                font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { font-family: var(--mono); font-size: 11px; padding: 3px 8px;
+          border: 1px solid var(--rule-firm); border-radius: var(--radius);
+          color: var(--ink-soft); }
+  .chip.on { border-color: var(--verdigris); color: var(--verdigris);
+             background: var(--verd-wash); }
+  .verdict { font-family: var(--mono); font-size: 12px; letter-spacing: .06em;
+             text-transform: uppercase; color: var(--oxide); }
+  .picker { margin: 4px 0 16px; }
+  select {
+    font-family: var(--mono); font-size: 12px; padding: 5px 8px; border-radius: var(--radius);
+    border: 1px solid var(--rule-firm); background: var(--paper); color: var(--ink);
+  }
+
+  .chain-ok { color: var(--verdigris); font-family: var(--mono); font-size: 13px; }
+  .chain-bad { color: var(--oxide); font-family: var(--mono); font-size: 13px; }
+  .empty { color: var(--ink-soft); font-size: 14px; }
+  .fail {
+    background: var(--oxide-wash); border-left: 3px solid var(--oxide);
+    padding: 12px 14px; border-radius: var(--radius); color: var(--ink);
+  }
+  .fail code { font-family: var(--mono); font-size: 12px; }
+  footer { padding: 28px 0 0; color: var(--ink-soft); font-size: 13px;
+           border-top: 1px solid var(--rule); margin-top: 8px; }
+  a { color: var(--oxide); }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <header>
+    <div class="masthead-grid">
+      <div>
+        <h1>MandateGuard</h1>
+        <p class="sub">A re-consent allocator for Indian recurring mandates</p>
+      </div>
+      <div class="ident">
+        <div class="label">policy</div>
+        <div class="n" id="policy-hash">—</div>
+        <div class="label" style="margin-top:6px">book</div>
+        <div class="n" id="book-size">—</div>
+      </div>
+    </div>
+    <div class="shadow-strip" id="shadow">
+      <strong>SHADOW</strong> — nothing on this page reached a customer. Every figure is a
+      simulation over a committed historical book.
+    </div>
+  </header>
+
+  <!-- ---------------------------------------------------------------- band 1 -->
+  <section>
+    <div class="dial-head">
+      <span class="label">weekly budget</span>
+      <span class="budget" id="budget">—</span>
+      <span class="affordable" id="affordable"></span>
+    </div>
+    <input type="range" id="dial" min="0" max="16" step="1" value="11"
+           aria-label="weekly ask budget, 17 notches">
+    <div class="dial-ends"><span id="dial-lo">—</span><span id="dial-hi">—</span></div>
+
+    <p class="verdict-line" id="verdict">—</p>
+
+    <div class="versus">
+      <div class="versus-head">
+        <span></span>
+        <span class="col-a">P1 · ask everyone<em>the tool a merchant runs today</em></span>
+        <span class="col-b">P4 · MandateGuard<em>asks only where it pays</em></span>
+        <span></span>
+      </div>
+      <div id="compare"></div>
+    </div>
+
+    <p class="unspent" id="unspent"></p>
+
+    <details id="detail">
+      <summary class="label">all five arms, in full</summary>
+      <div class="scroller">
+        <table>
+          <thead><tr>
+            <th>arm</th><th>what it does</th><th>retained</th><th>rate</th>
+            <th>revocations</th><th>asks</th><th>profit ₹</th><th>vs doing nothing</th>
+          </tr></thead>
+          <tbody id="arm-rows"></tbody>
+        </table>
+      </div>
+      <p class="note" style="margin-top:14px">
+        Profit is a bad headline here and that is why it is down in this table: the five
+        arms sit within 0.05% of each other, because most of this book was never going to
+        lapse anyway. The asks and the revocations are where the arms actually differ.
+      </p>
+      <p class="note" id="excluded"></p>
+    </details>
+  </section>
+
+  <!-- ---------------------------------------------------------------- band 2 -->
+  <section>
+    <h2>Why this mandate was <em>not</em> asked</h2>
+    <p class="note">
+      The refusal is the product. Four terms, and they add up — the marginal refusals are
+      first, because a mandate at −₹0.01 is the allocator working, while one at −₹900 was
+      never a candidate.
+    </p>
+    <div class="picker">
+      <span class="label">refusal</span>
+      <select id="refusal-pick" aria-label="which refusal to break down"></select>
+    </div>
+    <div id="refusal"></div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- band 3 -->
+  <section>
+    <h2>The ledger</h2>
+    <p class="note">
+      Every decision is written down, <strong>asked and not-asked alike</strong>, in an
+      append-only hash chain. The chain is re-verified on every read rather than cached: a
+      log that serves rows without checking them is a viewer, and the only advantage this
+      log has over a text file is that reading it proves it was not altered.
+    </p>
+    <div class="picker">
+      <span class="label">run</span>
+      <select id="run-pick" aria-label="which run's ledger to read"></select>
+    </div>
+    <div id="ledger"></div>
+  </section>
+
+  <footer>
+    Read-only surface over the FastAPI service. Full argument in
+    <span class="n">docs/results.md</span> §2–§4,
+    <span class="n">docs/eval.md</span> §4 for the shadow price, and
+    <span class="n">docs/limitations.md</span> for what none of this establishes.
+    <span id="api-note"></span>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const inr = (x, dp = 0) =>
+  (x < 0 ? "−₹" : "₹") + Math.abs(x).toLocaleString("en-IN", {
+    minimumFractionDigits: dp, maximumFractionDigits: dp });
+const num = (x, dp = 0) =>
+  x.toLocaleString("en-IN", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+
+/*
+  The comparison is P1 against P4 on three quantities, and it is deliberately NOT profit.
+  A first draft led with "gain over the P0 floor" in rupees, and it told a reader nothing:
+  on a book earning INR 413,219 the arms differ by INR 213, which reads as noise. The
+  arms differ enormously on the two things a customer would actually notice -- how many
+  times they were contacted, and how many of them cancelled because of it -- and those
+  have the dynamic range to be legible: 16,236 asks against 109, 90.6 revocations
+  against 0.3. Profit stays, in the table, where it belongs.
+*/
+const ROWS = [
+  { key: "asks_spent", name: "Asks made",
+    note: "messages to customers over 12 weeks", dp: 0 },
+  { key: "revocations_caused", name: "Revocations caused",
+    note: "mandates the asking itself killed", dp: 1 },
+];
+const WHAT = {
+  P0: "contacts nobody — the floor",
+  P1: "first-come until the budget runs out",
+  P2: "same budget, fair rotation",
+  P3: "top-B by expected value",
+  P4: "multiple-choice knapsack under the budget",
+};
+
+let ladder = null;
+
+async function get(path) {
+  const response = await fetch(path);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.detail || `${response.status} on ${path}`);
+  return body;
+}
+
+function fail(node, error) {
+  node.innerHTML = `<div class="fail">${error.message}</div>`;
+}
+
+/* ---------------------------------------------------------------- masthead */
+async function boot() {
+  try {
+    const health = await get("/health");
+    $("policy-hash").textContent = health.policy_hash;
+    $("shadow").style.display = health.mode === "shadow" ? "" : "none";
+    if (health.degradation !== "NORMAL") {
+      $("api-note").textContent = ` Service is degraded: ${health.degradation}.`;
+    }
+  } catch (error) { /* the dial's own error surface is enough */ }
+}
+
+/* -------------------------------------------------------------------- dial */
+function times(a, b) {
+  if (b <= 0) return a > 0 ? "∞ fewer" : "same";
+  const factor = a / b;
+  return factor >= 1.05 ? `${num(factor, factor < 10 ? 1 : 0)}× fewer` : "about the same";
+}
+
+function drawCompare(points) {
+  const by = Object.fromEntries(points.map((p) => [p.arm, p]));
+  const a = by.P1, b = by.P4, floor = by.P0;
+  if (!a || !b || !floor) return;
+
+  /* Both bars in a row share one scale. Separate scales per bar would make a 109 and a
+     16,236 look identical, which is exactly the mistake the first draft of this page
+     made with its two-panel chart. */
+  const bars = ROWS.map((row) => {
+    const av = a[row.key], bv = b[row.key];
+    const scale = Math.max(av, bv, 1e-9);
+    return `<div class="crow">
+      <span class="crow-name">${row.name}<em>${row.note}</em></span>
+      <span class="cell a">
+        <span class="amount">${num(av, row.dp)}</span>
+        <span class="track"><span class="bar" style="width:${(av / scale) * 100}%"></span></span>
+      </span>
+      <span class="cell b">
+        <span class="amount">${num(bv, row.dp)}</span>
+        <span class="track"><span class="bar" style="width:${(bv / scale) * 100}%"></span></span>
+      </span>
+      <span class="ratio">${times(av, bv)}</span>
+    </div>`;
+  }).join("");
+
+  /* Retention gets no bars on purpose: 1,131.9 against 1,215.9 is a 7% difference and two
+     bars would look the same length. The number that matters is the gap, and the fact that
+     the arm making 149x fewer asks is the one on the right side of it. */
+  const gap = b.mandates_retained - a.mandates_retained;
+  const retention = `<div class="crow">
+    <span class="crow-name">Mandates retained<em>out of ${num(floor.mandates_retained, 1)} if nobody is contacted at all</em></span>
+    <span class="cell a"><span class="amount">${num(a.mandates_retained, 1)}</span></span>
+    <span class="cell b"><span class="amount">${num(b.mandates_retained, 1)}</span></span>
+    <span class="ratio">${gap >= 0 ? "+" : "−"}${num(Math.abs(gap), 1)}</span>
+  </div>`;
+
+  $("compare").innerHTML = bars + retention;
+
+  $("verdict").innerHTML = a.asks_spent === 0
+    ? `At a budget of nothing, neither arm can contact anybody. Move the dial.`
+    : `Asking everyone the budget allows costs
+       <span class="big loss">${num(a.revocations_caused, 1)}</span> mandates in revocations
+       across <span class="big loss">${num(a.asks_spent)}</span> asks.
+       Asking only where it pays costs
+       <span class="big gain">${num(b.revocations_caused, 1)}</span> across
+       <span class="big gain">${num(b.asks_spent)}</span> — and
+       <b>${gap >= 0 ? "keeps more mandates" : "keeps fewer mandates"}</b>.`;
+
+  /* Per week, not per horizon. `asks_spent` counts the whole 12 weeks while the dial is a
+     weekly budget, and dividing was not optional: comparing the two directly printed
+     "leaves −₹1.81", a negative amount of unspent money, at the sixth notch. Two correct
+     numbers in the wrong units still make a wrong sentence. */
+  const perWeek = (arm) => (arm.asks_spent * ladder.bulk_channel_cost_inr) / ladder.weeks;
+  const left = ladder.rung.budget_inr - perWeek(b);
+  $("unspent").innerHTML = left > 0.005
+    ? `<b>MandateGuard leaves ${inr(left, 2)} of the ${inr(ladder.rung.budget_inr, 2)} `
+      + `unspent each week.</b> It is not trying to use the budget — it stops when the `
+      + `next ask would cost more than it saves. Asking everyone spends `
+      + `${inr(perWeek(a), 2)} of it.`
+    : "";
+}
+
+function drawTable(points) {
+  $("arm-rows").innerHTML = points.map((p) => {
+    const cls = p.gain_over_floor_inr > 0 ? "gain" : (p.gain_over_floor_inr < 0 ? "loss" : "");
+    return `<tr>
+      <td>${p.arm}</td>
+      <td style="font-family:var(--serif);text-align:left">${WHAT[p.arm] || ""}</td>
+      <td>${num(p.mandates_retained, 1)}</td>
+      <td>${(p.retention_rate * 100).toFixed(3)}%</td>
+      <td>${num(p.revocations_caused, 1)}</td>
+      <td>${num(p.asks_spent)}</td>
+      <td>${num(p.profit_inr)}</td>
+      <td style="color:${p.gain_over_floor_inr > 0 ? "var(--verdigris)" : (p.gain_over_floor_inr < 0 ? "var(--oxide)" : "inherit")}">${inr(p.gain_over_floor_inr)}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function showNotch(notch) {
+  try {
+    const view = await get(`/ladder?notch=${notch}`);
+    ladder = view;
+    $("book-size").textContent = `${num(view.mandates)} mandates · ${view.weeks} weeks`;
+    $("budget").textContent = inr(view.rung.budget_inr, 2);
+    $("affordable").textContent =
+      `${num(view.rung.asks_affordable)} ${view.bulk_channel} asks per week at ` +
+      `${inr(view.bulk_channel_cost_inr, 2)} each`;
+    $("dial").max = view.budgets.length - 1;
+    $("dial-lo").textContent = inr(view.budgets[0], 2);
+    $("dial-hi").textContent = inr(view.budgets[view.budgets.length - 1], 2);
+    $("excluded").textContent = `${view.arms_excluded.join(", ")} is not on this chart. ` +
+      view.excluded_because;
+    drawCompare(view.rung.points);
+    drawTable(view.rung.points);
+  } catch (error) { fail($("compare"), error); }
+}
+
+/* ----------------------------------------------------------------- refusal */
+function drawRefusal(row) {
+  if (!row) { $("refusal").innerHTML = `<p class="empty">No refusals at this budget.</p>`; return; }
+  const chips = ["in_app", "email", "sms", "whatsapp", "ivr", "letter", "agent"]
+    .map((c) => `<span class="chip ${c === row.channel ? "on" : ""}">${c}</span>`).join("");
+  $("refusal").innerHTML = `
+    <div class="ledger-terms">
+      <div class="term"><span>prevents lapses worth</span>
+        <span class="n" style="color:var(--verdigris)">+ ${inr(row.gain_inr, 2)}</span></div>
+      <div class="term"><span>risks revocations worth</span>
+        <span class="n" style="color:var(--oxide)">− ${inr(row.backfire_inr, 2)}</span></div>
+      <div class="term sub"><span>of which the lost channel to this customer</span>
+        <span class="n">${inr(row.reachability_at_risk_inr, 2)}</span></div>
+      <div class="term"><span>spends patience worth</span>
+        <span class="n">− ${inr(row.fatigue_inr, 2)}</span></div>
+      <div class="term"><span>costs, on ${row.channel}</span>
+        <span class="n">− ${inr(row.channel_cost_inr, 2)}</span></div>
+      <div class="term total"><span>net</span>
+        <span class="n" style="color:var(--oxide)">${inr(row.net_inr, 2)}</span></div>
+      <p class="verdict" style="margin:12px 0 0">not asked · ${row.kind.replace(/_/g, " ")}</p>
+      <p class="note" style="margin:6px 0 0">${row.reason}</p>
+      <div class="chips">${chips}</div>
+      <p class="label" style="margin-top:10px">
+        hazard ${row.hazard.toFixed(5)} · ltv ${inr(row.ltv_remaining_inr, 0)}
+      </p>
+    </div>`;
+}
+
+async function showRefusals(notch) {
+  try {
+    const view = await get(`/refusal?notch=${notch}&limit=8`);
+    const pick = $("refusal-pick");
+    pick.innerHTML = view.refusals.map((r, i) =>
+      `<option value="${i}">${inr(r.net_inr, 2)} · ${r.kind.replace(/_/g, " ")} · ` +
+      `would have used ${r.channel}</option>`).join("");
+    pick.onchange = () => drawRefusal(view.refusals[pick.value]);
+    drawRefusal(view.refusals[0]);
+  } catch (error) { fail($("refusal"), error); }
+}
+
+/* ------------------------------------------------------------------ ledger */
+async function showLedger(runId) {
+  try {
+    const page = await get(`/ledger?run_id=${encodeURIComponent(runId)}&limit=8`);
+    const rows = page.page.map((e) => `<tr>
+      <td style="text-align:left">${e.decision.mandate_id.slice(0, 14)}…</td>
+      <td style="text-align:left">w${e.decision.week}</td>
+      <td style="text-align:left;color:${e.decision.kind === "asked"
+        ? "var(--verdigris)" : "var(--oxide)"}">${e.decision.kind.replace("_", " ")}</td>
+      <td>${num(e.decision.value_inr, 2)}</td>
+      <td style="text-align:left;font-family:var(--serif)">${e.decision.reason}</td>
+    </tr>`).join("");
+    $("ledger").innerHTML = `
+      <p class="chain-ok">chain verified · ${num(page.entries)} entries ·
+        ${num(page.not_asked)} refusals (${(page.refusal_share * 100).toFixed(1)}%)</p>
+      <p class="label">head ${page.head}</p>
+      <div class="scroller"><table>
+        <thead><tr><th>mandate</th><th>week</th><th>decision</th><th>value ₹</th>
+          <th>reason</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+  } catch (error) {
+    $("ledger").innerHTML = `<div class="fail">
+      <span class="chain-bad">chain check failed — the ledger answers 409, not 200</span>
+      <p style="margin:8px 0 0"><code>${error.message}</code></p></div>`;
+  }
+}
+
+/* -------------------------------------------------------------------- wire */
+let pending = null;
+$("dial").addEventListener("input", (event) => {
+  const notch = Number(event.target.value);
+  clearTimeout(pending);
+  pending = setTimeout(() => { showNotch(notch); showRefusals(notch); }, 90);
+});
+
+(async function start() {
+  await boot();
+  await showNotch(11);
+  await showRefusals(11);
+  try {
+    const index = await get("/runs");
+    const pick = $("run-pick");
+    if (!index.runs.length) {
+      $("ledger").innerHTML = `<p class="empty">No ledger yet. ` +
+        `<span class="n">uv run python scripts/make_ledger.py --sample</span> writes one.</p>`;
+      pick.innerHTML = `<option>none</option>`;
+      return;
+    }
+    pick.innerHTML = index.runs.map((r) => `<option>${r}</option>`).join("");
+    pick.onchange = () => showLedger(pick.value);
+    showLedger(index.runs[0]);
+  } catch (error) { fail($("ledger"), error); }
+})();
+</script>
+</body>
+</html>

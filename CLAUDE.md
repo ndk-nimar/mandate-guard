@@ -117,6 +117,7 @@ uv run python scripts/make_ledger.py --sample  # T5.1  a run's decision ledger
 uv run mandateguard replay --decision-id X     # T5.2  re-run one decision
 uv run mandateguard audit --rail enach         # judge one mandate, clauses named
 uv run mandateguard repro --check              # T5.8  rebuild every artifact, fail on a byte
+uvicorn mandateguard.app.api:app               # T5.6  the page at http://127.0.0.1:8000/
 ```
 
 `repro --check` is GATE 5 and it is what CI runs: about three minutes **on a plain local

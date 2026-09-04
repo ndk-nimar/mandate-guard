@@ -675,14 +675,47 @@ Goal: everything that turns working code into a submission.
 - [x] **T5.5 — FastAPI service.** `/allocate`, `/explain`, `/ledger`, `/replay`.
   **Done when:** the OpenAPI docs render and all four return valid responses.
 
-- [ ] **T5.6 — [CUT #5] Streamlit surface.** Book view, budget dial, six-arm chart,
+- [x] **T5.6 — [CUT #5, then UNCUT] The surface.** Book view, budget dial, six-arm chart,
   sensitivity heatmap, ledger tab, per-mandate rupee breakdown. Talks to FastAPI over httpx.
   **Done when:** the budget dial moves and the six-arm chart moves with it.
-  **CUT, 2026-09-03**, at position 5 of the documented cut order and not in a panic —
-  `app/ui.py` stays as the T0.5 two-process spike so the API boundary keeps being exercised,
-  and the charts ship as the PNGs `repro` regenerates. What it costs is real and is said in
-  `architecture.md` §4: a judge cannot *feel* the frontier move, they have to read it off
-  `results.md` §4.
+
+  **CUT 2026-09-03**, at position 5 of the documented cut order and not in a panic. The
+  reason recorded at the time was that a live dial looked unaffordable: `make_results.py`
+  takes 92s, so re-solving on every drag seemed impossible.
+
+  **UNCUT 2026-09-04, because that reason was wrong.** Measured before rebuilding anything:
+  the five arms `P0`–`P4` solve over the full 12-week horizon in **1.67s** together, and the
+  book boots in 0.69s. The 92s was `P5` Whittle (27.9s) plus the sweeps, not the arms. A
+  cut taken on an unmeasured assumption survived a day and a half.
+
+  **Shipped, reduced:** the 17-notch dial and a five-arm chart that moves with it, a refusal
+  priced in four rupee terms, and the ledger tab. **Still cut:** the sensitivity heatmap (it
+  is a committed PNG already) and the book view (a list proves no claim). **Not Streamlit** —
+  a hand-written page served by FastAPI itself, because `config.toml` exposes five colours
+  and one font family and the ask was a distinct visual identity (`stack.md`).
+
+  Four things that came out of building it, each recorded where it bites:
+  * **The chart cannot plot profit.** The five arms sit within 0.05% of each other in the
+    interesting region, so a zero-baselined chart draws five identical bars and the dial
+    looks broken. It plots gain over the `P0` floor, in two panels 140x apart — `P1` at
+    −₹29,124 and `P4` at +₹213 — and that gap *is* the finding.
+  * **The refusal panel's first arithmetic was wrong.** It listed lapse loss, backfire,
+    fatigue and reachability as four peers. They do not sum: reachability is *inside*
+    backfire (`value/ltv.py`, `L(1−r) + αR`). Four numbers that do not add up, on this
+    project's differentiator panel. Reachability is now a sub-line on the backfire row.
+  * **`best_channel` silently dropped the entire refusal population.** It returns `None`
+    unless an ask is *worth making*, so the first draft of `/refusal` showed 1 row out of
+    1,323 — and that one was `outbid`, not `not_worth_asking`. A panel titled "why we did
+    not ask" that can only show mandates we wanted to ask.
+  * **`/ladder` must not go through `Guard.authorise`.** `P1` at the top notch makes 16,236
+    simulated asks against a 500/hour rate limit, so a guarded ladder would chart the rate
+    limiter instead of the arms. It halts on a policy-hash mismatch and reports
+    `simulated: true` as well as `acted: false`. `ADR 0005`'s invariant is amended in
+    `api.py`'s docstring rather than quietly broken.
+
+  **Deferred:** the three committed PNGs still use matplotlib defaults and clash with the
+  page's palette. Bounded (one palette module, three call sites) but it changes committed
+  PNG bytes, so `repro --check` would report drift and all three need regenerating.
 
 - [x] **T5.7 — Remaining docs.** `problem.md` (framed by the Chrome 300M-user result),
   `prior_art.md` (the ten-system table — nobody writes this doc in a hackathon),
@@ -765,7 +798,10 @@ Cut from the top:
 3. **Multi-period horizon** — collapse to a single period. Note that this also removes the
    point of P5.
 4. **T2.8 Sensitivity grid** — collapse to one nominal point.
-5. **T5.6 Streamlit polish** — raw matplotlib PNGs are acceptable.
+5. ~~**T5.6 Streamlit polish** — raw matplotlib PNGs are acceptable.~~ **Taken 2026-09-03,
+   restored 2026-09-04** when the cost turned out to be 1.67s rather than 92s. The cut
+   order was right to list it last-but-one; the estimate behind taking it was not
+   measured. See T5.6.
 
 **Never cut:** real data (Phase 1) · the P2 RoundRobin arm · the refusal ledger · the model
 card · `limitations.md`. Those five *are* the score.
