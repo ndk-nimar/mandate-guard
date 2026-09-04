@@ -234,7 +234,7 @@ an allocation, not the service (`limitations.md` §8.10).
 
 ## 5. Testing shape
 
-725 tests over 34 files, and the two that matter structurally:
+729 tests over 34 files, and the two that matter structurally:
 
 * **The chaos suite runs as its own CI step.** "The system degraded" is a different claim
   from "the tests passed" and deserves its own green tick.

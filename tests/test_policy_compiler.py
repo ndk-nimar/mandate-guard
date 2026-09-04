@@ -36,11 +36,14 @@ from mandateguard.agent.expression import (
 )
 from mandateguard.models import MandateAuditContext, PolicyRule, Rail, Verdict
 from mandateguard.policy.loader import (
+    POLICY_DIR,
     POLICY_PATH,
     LLMParams,
     Policy,
+    content_hash,
     load_params,
     load_policy,
+    policy_hash,
     source_text,
 )
 
@@ -418,3 +421,51 @@ def test_policy_validates_as_a_model_without_touching_disk():
     """`Policy` is constructible in memory -- the FastAPI layer (T5.5) needs that."""
     policy = load_policy()
     assert Policy.model_validate(policy.model_dump(mode="json")).version == policy.version
+
+
+class TestHashesSurviveTheCheckout:
+    """The two load-time hashes must answer "is this the same text", not "is this the same
+    file". They came apart on 2026-09-04: CI on `windows-latest` checked the repository out
+    with `core.autocrlf=true`, every LF in the RBI circular became CRLF, and `load_policy()`
+    refused to start -- reporting that the regulator's text had been edited. The same
+    failure meets any contributor who clones on Windows with git's defaults.
+
+    `.gitattributes` pins these paths to LF, which fixes the working copy. These tests are
+    the other half: they fix the *hash*, so a checkout that slips past .gitattributes still
+    loads rather than accusing the regulator.
+    """
+
+    def test_crlf_does_not_change_the_content_hash(self, tmp_path: Path) -> None:
+        original = POLICY_DIR / "sources" / "rbi-2026-04-21-e-mandate-framework.md"
+        raw = original.read_bytes()
+        assert b"\r\n" not in raw, "the committed circular is LF; this test assumes it"
+
+        crlf = tmp_path / original.name
+        crlf.write_bytes(raw.replace(b"\n", b"\r\n"))
+
+        assert crlf.read_bytes() != raw, "the fixture must actually differ in bytes"
+        assert content_hash(crlf) == content_hash(original)
+
+    def test_the_pinned_circular_hash_still_matches(self) -> None:
+        """The normalisation must not have moved the hash the YAML pins -- if it had, every
+        compiled rule would be citing a text this loader no longer recognises."""
+        policy = load_policy()
+        source = POLICY_DIR / policy.source.text_file
+        assert content_hash(source) == policy.source.sha256
+
+    def test_policy_hash_survives_crlf(self, tmp_path: Path) -> None:
+        """`policy_hash()` is written into every ledger entry. If a checkout setting could
+        move it, "this decision replays under the policy that produced it" would silently
+        become "...if you cloned the way I did"."""
+        raw = POLICY_PATH.read_bytes()
+        crlf = tmp_path / POLICY_PATH.name
+        crlf.write_bytes(raw.replace(b"\n", b"\r\n"))
+        assert policy_hash(crlf) == policy_hash(POLICY_PATH)
+
+    def test_a_real_edit_still_changes_the_hash(self, tmp_path: Path) -> None:
+        """The normalisation removes line endings from the answer and nothing else. A word
+        changed in the circular must still fail the gate -- that is the whole mechanism."""
+        original = POLICY_DIR / "sources" / "rbi-2026-04-21-e-mandate-framework.md"
+        edited = tmp_path / original.name
+        edited.write_bytes(original.read_bytes().replace(b"shall", b"may", 1))
+        assert content_hash(edited) != content_hash(original)

@@ -630,9 +630,9 @@ on — and run
 | `P1` ARR retained | 384,906 | 384,90**7** | 384,90**5** |
 | `P4` ARR retained | 413,470 | 413,47**1** | 413,46**9** |
 | `P2` rate | 83.604% | 83.60**5**% | 83.604% |
-| `segments.png` | — | **byte-identical** | +7,240 bytes |
 | `sweeps.png` | — | −13 bytes | +8,687 bytes |
 | `results.md` lines changed | — | 20 | 32 |
+| `segments.png` | — | *never rebuilt* — see §9.5 | +7,240 bytes |
 
 So this is not a platform property. **It is a machine property.** Two Windows machines
 running the same command on the same lockfile against the same committed sample produce
@@ -691,7 +691,67 @@ and 1,054 on identical input, and it would still catch it.
   depend on pins nobody re-verifies.
 
 
-### 9.5 The general failure, which is the part worth keeping
+### 9.5 The guard caught the person who wrote it
+
+Added the same day, immediately below the claim it corrects.
+
+`scripts/check_drift.py` refuses to run on a rebuild that did not finish: it reads the
+report `repro` printed and requires every step to say `ok`, because an empty diff produced
+by a crashed rebuild is indistinguishable from success. The first CI run after that guard
+existed, it fired — on `windows-latest`:
+
+```
+repro did not report 'ok' for: llm-eval, segments.
+The rebuild did not complete, so nothing below is evidence of anything.
+```
+
+**The `segments` step had not been passing on `windows-latest`. It had not been running.**
+`llm-eval` failed before it, `repro` stopped, and `segments.png` was never regenerated — so
+`git diff` did not list it, and §9.4 above originally read that silence as "byte-identical".
+The claim was corrected rather than quietly dropped, and it is left visible here because
+this is the exact reasoning error ADR 0003 was written against: an absent answer wearing the
+shape of a passing one.
+
+### 9.6 And what it was hiding: a hash that depended on how you cloned
+
+The reason `llm-eval` failed had nothing to do with drift:
+
+```
+ValueError: rbi-2026-04-21-e-mandate-framework.md hashes to 4c8761dd...,
+but mandate_policy.yaml pins 11a691ca...
+```
+
+GitHub's `windows-latest` checks out with `core.autocrlf=true`. Every LF in the RBI
+circular became CRLF, the file's bytes changed, and `load_policy()` refused to start —
+reporting that **the regulator's text had been edited**. It had not. Git's checkout setting
+had changed.
+
+This is worse than a CI failure, and it is not really a CI finding at all:
+
+* **Any contributor cloning on Windows with git's defaults hits it.** The project does not
+  start. The error accuses the circular.
+* **`policy_hash()` had the same defect**, and that one is load-bearing in a way the first
+  is not: it is written into every ledger entry, and [`adr/0004`](./adr/0004-the-model-does-not-decide.md)
+  rests on it. "Change the policy and old decisions still replay under the policy that
+  produced them" would silently have meant "…if you cloned the way I did".
+
+Both hashes now normalise line endings before hashing (`policy/loader.py::content_hash`).
+The distinction being drawn is deliberate: a hash over raw bytes answers *is this the same
+file*, and what these two are asked is *is this the same text*. `.gitattributes` pins the
+same paths to LF so the working copy cannot drift either — belt as well as braces, because
+the normalisation protects a clone that slips past `.gitattributes` and `.gitattributes`
+protects an editor that would otherwise rewrite the file.
+
+**Verified before changing anything:** both committed files are LF today, so normalising
+moves neither hash. `policy_hash()` is still `ce28096eeba5ad9d` and the circular still
+hashes to the pinned `11a691ca…`. A normalisation that had silently moved `policy_hash`
+would have invalidated every ledger already written, which is why it was measured first
+rather than reasoned about afterwards. `tests/test_policy_compiler.py` pins all four
+properties, including that a real edit — one word of the circular changed — still fails the
+gate. Removing line endings from the answer is the whole change; nothing else was relaxed.
+
+
+### 9.7 The general failure, which is the part worth keeping
 
 A workflow that has never run is not a gate. It is a file that describes one.
 

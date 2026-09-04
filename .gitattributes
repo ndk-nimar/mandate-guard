@@ -1,0 +1,10 @@
+# The compiled policy and the circular it cites are hashed, and those hashes are load-time
+# gates: mandate_policy.yaml pins the circular's SHA-256, and policy_hash() is written into
+# every ledger entry. src/mandateguard/policy/loader.py normalises line endings before
+# hashing so a checkout setting cannot masquerade as an edited regulation -- this file is
+# the other half, keeping the working copy itself LF on every platform.
+#
+# Found on 2026-09-04: CI on windows-latest checked out with core.autocrlf=true and
+# load_policy() refused to start, reporting that the RBI circular had been edited.
+policy/sources/*.md   text eol=lf
+policy/*.yaml         text eol=lf

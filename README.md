@@ -35,7 +35,7 @@ the one these files were committed from.
 > `.env.example`.
 
 ```bash
-uv run pytest                                       # 725 tests, 2 opt-in and skipped
+uv run pytest                                       # 729 tests, 2 opt-in and skipped
 uv run mandateguard audit --rail enach --amount 20000   # judge one mandate, clauses named
 uv run mandateguard replay --decision-id <id>       # re-run one historical decision
 uv run mandateguard verify-ledger <path>            # walk the hash chain

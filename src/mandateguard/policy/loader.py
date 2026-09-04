@@ -392,6 +392,27 @@ def _normalise(text: str) -> str:
     return " ".join(text.split())
 
 
+def content_hash(path: Path) -> str:
+    """SHA-256 of a text file, with line endings normalised out of the answer first.
+
+    A hash over raw bytes answers "is this the same file", and what these hashes are asked
+    is "is this the same *text*". The two came apart on 2026-09-04: CI on `windows-latest`
+    checked the repository out with `core.autocrlf=true`, every LF in the circular became
+    CRLF, and `load_policy()` refused to start -- reporting that the regulator's text had
+    been edited, when what had changed was git's checkout setting. The same failure would
+    meet any contributor cloning on Windows with git's defaults.
+
+    Normalising also protects the value this is used for: `policy_hash()` goes into every
+    ledger entry, so without it "this decision replays under the policy that produced it"
+    would quietly become "...if you cloned the way I did".
+
+    The committed files are LF, so this changes no existing hash -- verified before the
+    change, because a normalisation that silently moved `policy_hash` would invalidate
+    every ledger already written.
+    """
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def source_text(policy: Policy, policy_dir: Path = POLICY_DIR) -> str:
     """The committed circular text a policy's rules cite, hash-checked on the way out."""
     path = policy_dir / policy.source.text_file
@@ -401,7 +422,7 @@ def source_text(policy: Policy, policy_dir: Path = POLICY_DIR) -> str:
             "no citation in mandate_policy.yaml can be checked against anything."
         )
     raw = path.read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
+    digest = content_hash(path)
     if digest != policy.source.sha256:
         raise ValueError(
             f"{path.name} hashes to {digest}, but mandate_policy.yaml pins "
@@ -471,6 +492,7 @@ def policy_hash(path: Path = POLICY_PATH) -> str:
     """Content hash of the policy file, recorded on every ledger entry.
 
     Lets us say, in one line: change the policy and old decisions still replay under the
-    policy that produced them.
+    policy that produced them. Line endings are normalised out (`content_hash`) so that
+    sentence does not depend on how the repository was cloned.
     """
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+    return content_hash(path)[:16]
